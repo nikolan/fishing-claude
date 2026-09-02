@@ -225,6 +225,7 @@ function render() {
   if (!state.wx) return;
   if (state.view === 'forecast') {
     renderHero();
+    $('#stripHead').textContent = `Next ${state.days.length} days for ${PROFILES[state.species].label.toLowerCase()}`;
     renderDayStrip($('#days'), state.days);
   } else {
     renderHistory();
@@ -301,6 +302,7 @@ function renderDayStrip(wrap, days) {
           type: 'button',
           role: 'option',
           'aria-selected': String(d.dateKey === state.selectedDay),
+          'aria-label': `${fmtDow(d.dateKey)} ${fmtDate(d.dateKey)}: ${d.score.toFixed(1)} of 5 for ${PROFILES[state.species].label.toLowerCase()}, ${d.label.toLowerCase()}`,
           onclick: () => {
             state.selectedDay = d.dateKey;
             state.selectedHour = null;
