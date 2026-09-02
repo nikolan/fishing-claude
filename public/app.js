@@ -1,4 +1,4 @@
-import { forecast, PROFILES, SEASON, WATER_TEMP, WEIGHTS, ratingLabel, WATER_TAU_HOURS, COLOUR_HALF_LIFE_HOURS, BOAT_COLOUR_HALF_LIFE_HOURS } from './src/engine.js';
+import { forecast, PROFILES, SEASON, WATER_TEMP, WEIGHTS, ratingLabel, WATER_TAU_HOURS, COLOUR_HALF_LIFE_HOURS, BOAT_COLOUR_HALF_LIFE_HOURS, lureAdvice, lurePicks } from './src/engine.js';
 import { fetchForecast, fetchBankHolidays, weatherCodeLabel, normaliseOpenMeteo } from './src/data.js';
 import { findRainGauge, fetchGaugeHourly, applyGaugeRain } from './src/ea.js';
 import { getSunTimes } from './src/astro.js';
@@ -465,6 +465,7 @@ function renderDetail() {
   if (state.gauge && isToday) fact(`Rain gauge (${Math.round(state.gauge.km)} km)`, `${state.gauge.rain24} mm / 24h, ${state.gauge.rain72} mm / 72h`);
   sec.append(facts);
 
+  sec.append(renderLures(day));
   sec.append(renderHourChart(day));
   const legend = el('div', { class: 'legend' });
   legend.append(el('span', { style: '--k: var(--score-3)', text: 'Hourly score (0–5)' }));
@@ -476,6 +477,40 @@ function renderDetail() {
   const sel = day.hours.find((h) => h.time === state.selectedHour) ?? day.hours.reduce((a, b) => (b.fishable && b.score > (a?.score ?? -1) ? b : a), null) ?? day.hours[0];
   sec.append(renderBreakdown(sel));
   sec.append(renderHourTable(day));
+}
+
+function renderLures(day) {
+  const advice = lureAdvice({ colourIndex: day.colour, cloudPct: day.cloudMean, species: state.species });
+  const wrap = el('details', { class: 'lures' });
+  wrap.append(el('summary', { text: `Lure for ${advice.clarity} water` }));
+  wrap.append(el('p', { class: 'why', text: advice.why }));
+
+  const picks = lurePicks(advice.clarity);
+  if (picks.length) {
+    wrap.append(el('h4', { text: 'From your box' }));
+    const list = el('ul', { class: 'lure-list' });
+    for (const p of picks) {
+      list.append(
+        el('li', {},
+          el('strong', { text: p.name }),
+          el('small', { text: p.detail }),
+          el('small', { class: 'logged', text: p.logged }),
+        ),
+      );
+    }
+    wrap.append(list);
+  }
+
+  const grid = el('div', { class: 'facts-grid' });
+  const fact = (k, v) => grid.append(el('div', {}, el('div', { class: 'k', text: k }), el('div', { class: 'v', text: v })));
+  fact('Colours', advice.colours.join(', '));
+  fact('Size', advice.size);
+  fact('Action', advice.action);
+  wrap.append(grid);
+
+  for (const n of advice.notes) wrap.append(el('div', { class: 'note', text: n }));
+  wrap.append(el('div', { class: 'note', text: 'Guidance only. It does not enter the score, and it rests on a three-session log.' }));
+  return wrap;
 }
 
 function renderHourChart(day) {

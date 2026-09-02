@@ -630,3 +630,107 @@ export function forecast(wx, ctx, opts) {
   const days = summariseDays(hours, ctx, opts);
   return { hours, days };
 }
+
+// ---------------------------------------------------------------------------
+// Lure guidance
+//
+// Same clarity axis as the scoring, read for tackle instead of timing. In clear
+// water a perch has time to follow and inspect, so a small natural profile on
+// fine line wins and anything loud gets refused. As clarity drops the fish stops
+// working on detail and starts working on silhouette, contrast and vibration, so
+// bright colours, UV and a bit more noise earn their place.
+//
+// This is guidance, not scoring. It does not enter the score.
+export const LURE_GUIDE = [
+  {
+    max: 5,
+    clarity: 'clear',
+    colours: ['natural baitfish', 'motor oil', 'smoke', 'translucent browns and greens'],
+    size: 'smallest in the box, 30–40 mm',
+    action: 'subtle: drop shot, slow straight lift, long casts and fine line',
+    why: 'The fish gets a long look before it commits, so detail and a natural profile matter more than attraction.',
+  },
+  {
+    max: 12,
+    clarity: 'tinged',
+    colours: ['silver and white baitfish', 'dark back over pale belly', 'UV accents'],
+    size: '38–50 mm',
+    action: 'a little more movement: jig with sharper lifts, or a light spinnerhead',
+    why: 'Enough visibility for the fish to track a lure, enough cover that it commits instead of inspecting. The best of both.',
+  },
+  {
+    max: 25,
+    clarity: 'coloured',
+    colours: ['chartreuse', 'firetiger', 'orange belly', 'strong UV'],
+    size: '40–70 mm',
+    action: 'push water: paddle tails, rattles, slower retrieve, work close to features',
+    why: 'Contrast and vibration do the finding now. Reaction distance is short, so keep the lure in front of the fish for longer.',
+  },
+  {
+    max: 999,
+    clarity: 'chocolate',
+    colours: ['black', 'chartreuse', 'firetiger', 'anything with a rattle'],
+    size: '50–80 mm',
+    action: 'vibration first: bladed jigs and rattles, very slow, tight to the near shelf',
+    why: 'Sight is nearly out of the equation. A dark silhouette and a lateral-line signal beat any colour subtlety.',
+  },
+];
+
+/** Clarity band for a colour index, from LURE_GUIDE. */
+export function lureBand(colourIndex) {
+  return LURE_GUIDE.find((b) => colourIndex < b.max) ?? LURE_GUIDE[LURE_GUIDE.length - 1];
+}
+
+/**
+ * Lure guidance for a set of conditions. `cloudPct` shifts the advice within a
+ * band: bright sun over clear water is the hardest combination and pushes the
+ * advice smaller and more natural, while heavy cloud relaxes it.
+ */
+export function lureAdvice({ colourIndex, cloudPct = 50, species = 'perch' }) {
+  const band = lureBand(colourIndex);
+  const notes = [];
+  if (band.clarity === 'clear' && cloudPct < 40) {
+    notes.push('Bright sun on clear water is the hardest combination. Go smaller still, lengthen the cast and fish the shade.');
+  }
+  if (band.clarity !== 'clear' && cloudPct > 80) {
+    notes.push('Heavy cloud holds the light down all day, so the good window is wider than the usual dawn and dusk.');
+  }
+  if (species === 'zander') {
+    notes.push('Zander gain as light drops. Favour UV and a taller profile, and fish the last of the light and after dark.');
+  }
+  if (species === 'pike') {
+    notes.push('Scale up for pike. The colour rules still hold, the size does not.');
+  }
+  return { ...band, notes };
+}
+
+/**
+ * The lures actually in the bag, so the guidance can name one instead of
+ * describing a colour family. `logged` records what happened on the bank: three
+ * sessions is a starting log, not evidence. Edit freely as the log grows.
+ */
+export const LURE_BOX = [
+  {
+    name: 'Micro Fry Nano 38 mm — Mini Minnow',
+    detail: 'dark grey back, silver-white belly',
+    clarity: ['tinged'],
+    logged: 'Sun 30 Aug, tinged water: did great.',
+  },
+  {
+    name: 'Fox Rage Ultra UV Micro Spikey Fry 40 mm',
+    detail: 'dark green, orange belly, UV',
+    clarity: ['tinged', 'coloured'],
+    logged: 'Mon 31 Aug, tinged water: one large perch and a few bites.',
+  },
+  {
+    name: 'Micro Fry Nano 38 mm — Motor Oil Red',
+    detail: 'dark translucent, red fleck',
+    clarity: ['clear'],
+    logged: 'Wed 2 Sept, clearest water seen there: the only bites of the session.',
+  },
+];
+
+/** The lures in LURE_BOX that suit a clarity band, best first. */
+export function lurePicks(clarity) {
+  return LURE_BOX.filter((l) => l.clarity.includes(clarity));
+}

@@ -35,6 +35,20 @@ Open `http://127.0.0.1:4390/?mock=1` for a deterministic synthetic fortnight whe
 
 The forecast is cached, so the last one you loaded still shows on the towpath with no signal (the status line says how old it is).
 
+## Lures
+
+Each day's detail carries a lure panel, keyed to the same clarity index the score
+uses. In clear water it asks for small natural profiles, because the fish has
+time to inspect. As clarity drops it asks for contrast, UV and vibration,
+because the fish switches from detail to silhouette.
+
+`LURE_BOX` in `public/src/engine.js` lists the lures actually in the bag, so the
+panel names one instead of describing a colour family. Each entry records what
+happened on the bank. Three sessions is a starting log, not evidence. Add to it
+as you fish, and the panel gets more useful.
+
+The panel is guidance. It never enters the score.
+
 ## Tuning
 
 Everything lives in `public/src/engine.js`: `SEASON`, `WATER_TEMP`, `PROFILES`, `WEIGHTS`, `WATER_TAU_HOURS`, `COLOUR_HALF_LIFE_HOURS`, `BOAT_COLOUR_INPUT`. The in-app "How the score is built" panel renders those constants, so the documentation can't drift from the code. Run `npm test` after changing them — the tests pin the behaviours that matter (the 30 Aug reference day, perch-vs-zander divergence on bright and coloured days, cold snaps, pike welfare, NaN tolerance).

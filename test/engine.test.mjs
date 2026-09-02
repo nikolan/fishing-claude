@@ -15,6 +15,8 @@ import {
   BOAT_COLOUR_INPUT,
   RUNOFF_COLOUR_COEFF,
   PROFILES,
+  lureAdvice,
+  lurePicks,
 } from '../public/src/engine.js';
 
 const LAT = 52.41;
@@ -288,4 +290,31 @@ test('zander still prefer the coloured end, and diverge from perch there', () =>
   const bandFor = (sp, v) => PROFILES[sp].colour.find(([lo, hi]) => v >= lo && v < hi)[2];
   assert.ok(bandFor('zander', 18) > bandFor('perch', 18), 'zander beat perch in coloured water');
   assert.ok(bandFor('zander', 18) > bandFor('zander', 2), 'zander prefer colour to gin-clear');
+});
+
+test('lure guidance tracks the clarity bands', () => {
+  assert.equal(lureAdvice({ colourIndex: 3 }).clarity, 'clear');
+  assert.equal(lureAdvice({ colourIndex: 9 }).clarity, 'tinged');
+  assert.equal(lureAdvice({ colourIndex: 18 }).clarity, 'coloured');
+  assert.equal(lureAdvice({ colourIndex: 40 }).clarity, 'chocolate');
+  // Clear water asks for natural and small, coloured water for contrast.
+  assert.ok(lureAdvice({ colourIndex: 3 }).colours.some((c) => /natural|motor oil|smoke/.test(c)));
+  assert.ok(lureAdvice({ colourIndex: 18 }).colours.some((c) => /chartreuse|firetiger/.test(c)));
+});
+
+test('bright sun on clear water adds a note; zander and pike adjust', () => {
+  assert.ok(lureAdvice({ colourIndex: 3, cloudPct: 10 }).notes.some((n) => /Bright sun/.test(n)));
+  assert.equal(lureAdvice({ colourIndex: 3, cloudPct: 95 }).notes.filter((n) => /Bright sun/.test(n)).length, 0);
+  assert.ok(lureAdvice({ colourIndex: 9, species: 'zander' }).notes.some((n) => /Zander/.test(n)));
+  assert.ok(lureAdvice({ colourIndex: 9, species: 'pike' }).notes.some((n) => /pike/.test(n)));
+});
+
+test('the logged sessions land in the band their lure is filed under', () => {
+  // Sun 30 Aug and Mon 31 Aug both fished tinged water; Wed 2 Sept was clear.
+  const tinged = lurePicks('tinged').map((l) => l.name).join(' ');
+  assert.ok(/Mini Minnow/.test(tinged), 'Mini Minnow is the tinged-water pick');
+  assert.ok(/Spikey Fry/.test(tinged), 'the UV Spikey Fry is a tinged-water pick');
+  const clear = lurePicks('clear').map((l) => l.name).join(' ');
+  assert.ok(/Motor Oil/.test(clear), 'Motor Oil is the clear-water pick');
+  assert.ok(!/Motor Oil/.test(tinged), 'Motor Oil should not be offered for tinged water');
 });
