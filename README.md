@@ -25,11 +25,11 @@ Open `http://127.0.0.1:4390/?mock=1` for a deterministic synthetic fortnight whe
 
 ## Using it
 
-**Forecast** — the hero card is *now*; the strip below is the next 7 days. Tap a day for its hourly chart, then tap any hour to see the itemised reason for its score (season + light + water temp + colour + …, with the soft cap shown when it bites).
+**Forecast** — the hero card is *now*; the strip below is the next 7 days. Tap a day for its hourly chart, then tap any hour to see the itemised reason for its score (base + light + water temp + colour + …, with the soft cap shown when it bites).
 
 **History** — the last 14 days scored from recorded weather, with a daily bar chart, a "Good" threshold line and period stats. This is the calibration view: compare it against your own catch log. If your good sessions cluster above 3.4 the weights are working; if they don't, tune them (below).
 
-**Species** — perch / pike / zander switch the whole model, not just a label: different season curves, thermal bands, diel windows and reaction to coloured water. Pike carry PAC welfare warnings (≥18 °C, and the 16 Jun – 1 Oct summer break); zander carry a Schedule 9 permit reminder.
+**Species** — perch / pike / zander switch the whole model, not just a label: different thermal bands, diel windows and reaction to coloured water. Pike carry PAC welfare warnings (≥18 °C, and the 16 Jun – 1 Oct summer break); zander carry a Schedule 9 permit reminder.
 
 **Location** — tap the chip. Swims are grouped by the permit that covers them. *LACC waters* are the Lure Anglers Canal Club stretches: the Grand Union at Knowle, Rowington, Hatton, Leamington, Radford Semele, Stockton and Calcutt, and the South Stratford at Lowsonford, Preston Bagot and Wootton Wawen. *LAA waters* are open to LACC members. The rest of the Midlands presets sit on other books. Boundary and parking limits that are easy to get wrong appear under the swim name, but the club page is the authority and the boundaries move. You can also use your GPS position or type a lat/lng. Weather grids are 2–10 km so precision doesn't matter much.
 
@@ -51,7 +51,7 @@ The panel is guidance. It never enters the score.
 
 ## Tuning
 
-Everything lives in `public/src/engine.js`: `SEASON`, `WATER_TEMP`, `PROFILES`, `WEIGHTS`, `WATER_TAU_HOURS`, `COLOUR_HALF_LIFE_HOURS`, `BOAT_COLOUR_INPUT`. The in-app "How the score is built" panel renders those constants, so the documentation can't drift from the code. Run `npm test` after changing them — the tests pin the behaviours that matter (the 30 Aug reference day, perch-vs-zander divergence on bright and coloured days, cold snaps, pike welfare, NaN tolerance).
+Everything lives in `public/src/engine.js`: `WATER_TEMP`, `PROFILES`, `WEIGHTS`, `WATER_TAU_HOURS`, `COLOUR_HALF_LIFE_HOURS`, `BOAT_COLOUR_HALF_LIFE_HOURS`, `RUNOFF_COLOUR_COEFF`, `BOAT_COLOUR_INPUT`, `LURE_GUIDE`, `LURE_BOX`. The in-app "How the score is built" panel renders those constants, so the documentation can't drift from the code. Run `npm test` after changing them — the tests pin the behaviours that matter (the 30 Aug reference day, the inverted-U colour response, perch-vs-zander divergence, boat wash settling overnight, the flat base, cold snaps, pike welfare, NaN tolerance).
 
 ## Layout
 

@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  seasonBase,
   softCap,
   brightness,
   waterTempSeries,
@@ -12,6 +11,7 @@ import {
   ratingLabel,
   twilightSeasonFactor,
   pikeSummerBreak,
+  WEIGHTS,
   BOAT_COLOUR_INPUT,
   RUNOFF_COLOUR_COEFF,
   PROFILES,
@@ -45,21 +45,6 @@ function synth(startIso, days, fn) {
   }
   return wx;
 }
-
-test("season base interpolates and matches the user's anchors", () => {
-  const aug30 = seasonBase('perch', 242);
-  const sep5 = seasonBase('perch', 248);
-  assert.ok(aug30 > 2.5 && aug30 < 2.7, `aug30 ${aug30}`);
-  assert.ok(sep5 > 2.55 && sep5 < 2.85, `sep5 ${sep5}`);
-  const d365 = seasonBase('perch', 365);
-  const d1 = seasonBase('perch', 1);
-  assert.ok(Math.abs(d365 - d1) < 0.05);
-  // Pike: spawning dip and summer welfare trough vs winter peak.
-  assert.ok(seasonBase('pike', 105) < seasonBase('pike', 319));
-  assert.ok(seasonBase('pike', 210) < 1.0);
-  // Perch October peak.
-  assert.ok(seasonBase('perch', 289) >= seasonBase('perch', 228));
-});
 
 test('soft cap: linear to 4, then one third, hard cap 5', () => {
   assert.equal(softCap(3.2), 3.2);
@@ -158,7 +143,7 @@ test("user's example day (30 Aug, showers, overcast, falling pressure, 16°C) is
   assert.ok(day, 'expected 30 Aug summary');
   assert.ok(day.score >= 3.8 && day.score <= 4.6, `score ${day.score}`);
   const keys = new Set(day.hours[12].parts.map((p) => p.key));
-  for (const k of ['season', 'light', 'water', 'pressure', 'rain', 'colour', 'wind']) assert.ok(keys.has(k), `missing ${k}`);
+  for (const k of ['base', 'light', 'water', 'pressure', 'rain', 'colour', 'wind']) assert.ok(keys.has(k), `missing ${k}`);
   // Pressure is a tie-breaker now: never more than +0.2.
   const pr = day.hours[12].parts.find((p) => p.key === 'pressure');
   assert.ok(pr.value <= 0.2);
@@ -317,4 +302,36 @@ test('the logged sessions land in the band their lure is filed under', () => {
   const clear = lurePicks('clear').map((l) => l.name).join(' ');
   assert.ok(/Motor Oil/.test(clear), 'Motor Oil is the clear-water pick');
   assert.ok(!/Motor Oil/.test(tinged), 'Motor Oil should not be offered for tinged water');
+});
+
+test('the calendar no longer moves the score', () => {
+  // Same conditions in April and in October must now score identically. The
+  // seasonal base used to separate them by more than a point.
+  const make = (iso) =>
+    scoreHours(
+      synth(iso, 3, () => ({ temp: 12, cloud: 70, precip: 0, pressure: 1015, wind: 8 })),
+      ctxFor('perch'),
+    );
+  const april = make('2026-04-10T00:00:00Z');
+  const october = make('2026-10-10T00:00:00Z');
+  const noonPart = (hs, key) => hs.find((h) => h.hour === 12).parts.find((p) => p.key === key);
+  assert.equal(noonPart(april, 'base').value, noonPart(october, 'base').value, 'the base must not read the calendar');
+  // Sun geometry still differs between the two dates, so the totals are not
+  // identical. What must be gone is the seasonal step, which was above a point.
+  const noon = (hs) => hs.find((h) => h.hour === 12).score;
+  assert.ok(Math.abs(noon(april) - noon(october)) < 0.3, `April ${noon(april)} vs October ${noon(october)}`);
+  assert.equal(noonPart(april, 'season'), undefined, 'no season component remains');
+});
+
+test('every hour starts from the flat base', () => {
+  const hs = scoreHours(
+    synth('2026-09-10T00:00:00Z', 2, () => ({ temp: 14, cloud: 60, precip: 0, pressure: 1015, wind: 8 })),
+    ctxFor('perch'),
+  );
+  for (const h of hs) {
+    const base = h.parts.find((p) => p.key === 'base');
+    assert.ok(base, 'every hour carries a base part');
+    assert.equal(base.value, WEIGHTS.base);
+  }
+  assert.equal(hs.filter((h) => h.parts.some((p) => p.key === 'season')).length, 0, 'no season part remains');
 });

@@ -9,7 +9,7 @@ This document is the spec for `public/src/engine.js`. Every weight below is a co
 
 | Original (daily, perch only) | Now | Reason |
 |---|---|---|
-| Season base 2.6 / 2.8 (late Aug / early Sep) | 12-month curve per species, interpolated daily; perch anchored to your 2.6 / 2.8 | Needed year-round and for three species |
+| Season base 2.6 / 2.8 (late Aug / early Sep) | ~~12-month curve per species~~ **removed; replaced by a flat base of 2.5** | See "The seasonal base was removed" below |
 | Precipitation +1.0 light rain | +0.3 (perch) | Rain acts mainly through light and colour, which are scored directly; evidence grade B |
 | Cloud cover as its own factor (+0.8 / +0.3 / −0.5) | Folded into a single **light** component = sun elevation × cloud × fog, with species-specific diel curve | Prevents double-counting dusk + overcast; makes hourly forecasts possible |
 | Pressure falling +0.7 / rising −0.4 | Falling +0.2, post-frontal rise −0.3 (needs rise ≥ 8 hPa **and** clearing **and** colder) | Two controlled angling studies found **no** direct pressure effect (Kuparinen 2010; Escanaba 2021). What's real in the folklore is the covarying weather, already scored |
@@ -242,3 +242,36 @@ The hump was prompted by two sessions at Knowle: an outstanding morning in
 lightly coloured water after heavy rain, and a poor evening in the clearest
 water the angler had seen there. Two sessions cannot fix a curve. The literature
 above is what justifies the shape; the sessions only pointed at it.
+
+
+## The seasonal base was removed
+
+The score used to start from a per-species seasonal curve, interpolated daily,
+running 1.4 to 3.1 across the year for perch and 0.7 to 2.9 for pike. That term
+is gone. Every hour of every day now starts from a flat `WEIGHTS.base` of 2.5,
+and only the condition terms move it.
+
+What this changes, and what it does not:
+
+- **Within any few weeks, almost nothing.** The seasonal curve was near constant
+  over a fortnight, so removing it shifts the whole block by about 0.1 and leaves
+  the spread as it was. Over the 22 days at Knowle used for calibration the range
+  stayed at roughly 3.3 to 4.1 either way. Removing a constant re-levels a
+  forecast; it does not sharpen one.
+- **Across the year, a great deal.** The model no longer knows that October beats
+  April for perch, or that November beats July for pike by more than two points.
+  A mild January day and a mild October day now score the same. For pike the loss
+  is largest, because its seasonal swing was the widest of the three species.
+- **What still tracks the calendar.** The twilight factor still flattens the
+  dawn and dusk peaks in midsummer, the pike welfare break is still flagged from
+  16 June to 1 October, and boat traffic is still modelled by month. Those are
+  separate from the removed base.
+
+The narrow spread that prompted this is not caused by the base. It is caused by
+the condition terms being individually small: light moves about 1.0, water
+temperature 0.5, colour 0.5, and everything else 0.2 or less. Widening the
+forecast means giving those terms more authority, or applying a gain to their
+sum, not removing the constant they sat on.
+
+Restore `SEASON` and `seasonBase` from git history if the seasonal signal is
+wanted back.

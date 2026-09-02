@@ -8,24 +8,19 @@
 //    can see exactly WHY a score is what it is.
 //  * Every component is one physical mechanism. Light (sun angle × cloud × fog)
 //    is one component, so "overcast" and "dusk" don't double-count.
-//  * Weights live in SEASON / WATER_TEMP / PROFILES / WEIGHTS and nowhere else.
+//  * Weights live in WATER_TEMP / PROFILES / WEIGHTS and nowhere else.
 //  * Weights follow the evidence review in ALGORITHM.md: well-evidenced factors
 //    (season, water temperature, light, clarity) carry the score; folklore
 //    factors (pressure, solunar) are small tie-breakers.
 
 import { sunAltitudeDeg, getSolunarPeriods, solunarAt, getMoonIllumination, moonPhaseName, getSunTimes } from './astro.js';
-import { localParts, midnightForDateKey, dayOfYear } from './timezone.js';
+import { localParts, midnightForDateKey } from './timezone.js';
 
 export const SPECIES = ['perch', 'pike', 'zander'];
 
 // Mid-month seasonal base (Jan..Dec), interpolated by day of year. Shape from
 // the angler-consensus month tables (ALGORITHM.md §7) scaled so modifiers have
 // room; perch late-Aug/early-Sep anchored to the user's own 2.6 / 2.8.
-export const SEASON = {
-  perch: [2.0, 2.2, 2.4, 1.4, 1.8, 2.1, 2.1, 2.4, 2.8, 3.1, 3.0, 2.4],
-  pike: [2.3, 2.6, 2.0, 1.3, 1.6, 1.3, 0.7, 0.7, 1.6, 2.6, 2.9, 2.9],
-  zander: [2.3, 2.3, 2.0, 1.3, 1.3, 2.0, 2.3, 2.3, 2.6, 2.9, 2.9, 2.6],
-};
 
 // Water-temperature bands [lo, hi, points] on the canal water-temp PROXY.
 // Perch: Craig 1977 activity ∝ temp; specialists say big perch rarely feed <4 °C.
@@ -133,6 +128,16 @@ export const PROFILES = {
 };
 
 export const WEIGHTS = {
+  // Flat starting point for every hour of every day, replacing the old seasonal
+  // base. The score is this plus the sum of the condition terms, soft-capped.
+  //
+  // The seasonal base used to set this level from the calendar, running 1.4 to
+  // 3.1 across the year for perch. It was removed on request. Note what that
+  // costs: the model no longer knows that October beats April for perch, or that
+  // pike fish far better in November than in July. Only the pike welfare break
+  // still tracks the calendar, and it is a flag rather than a score. Restore the
+  // table from git history if the seasonal signal is wanted back.
+  base: 2.5,
   // Tie-breakers only: controlled studies find no direct pressure effect.
   pressure: { falling: 0.2, risingClearingCold: -0.3 },
   // 3-day mean vs previous 3-day mean of air temperature.
@@ -184,25 +189,6 @@ const band = (bands, v) => {
   for (const [lo, hi, pts] of bands) if (v >= lo && v < hi) return pts;
   return 0;
 };
-
-const MONTH_MID_DOY = [15, 46, 75, 105, 136, 166, 197, 228, 258, 289, 319, 350];
-
-/** Seasonal base for a species on a given day of year (linear between mid-months). */
-export function seasonBase(species, doy) {
-  const vals = SEASON[species];
-  let i = MONTH_MID_DOY.findIndex((m) => m > doy);
-  if (i === -1) i = 0;
-  const j = (i + 11) % 12;
-  let a = MONTH_MID_DOY[j];
-  let b = MONTH_MID_DOY[i];
-  let x = doy;
-  if (i === 0) {
-    b += 365;
-    if (x < a) x += 365;
-  }
-  const t = (x - a) / (b - a);
-  return vals[j] + (vals[i] - vals[j]) * t;
-}
 
 /** Crepuscular peaks are strongest Oct–Apr and flatten in midsummer (Craig 1977; Jacobsen 2002). */
 export function twilightSeasonFactor(month) {
@@ -372,10 +358,8 @@ export function scoreHours(wx, ctx) {
       parts.push({ key, label, value: round2(value), note });
     };
 
-    // 1. Season
-    const doy = dayOfYear(lp.year, lp.month, lp.day);
-    const base = seasonBase(species, doy);
-    add('season', 'Season', base, `${prof.label} in ${date.toLocaleString('en-GB', { month: 'long', timeZone: tz })}`);
+    // 1. Flat base. The calendar no longer moves the score; see WEIGHTS.base.
+    add('base', 'Base', WEIGHTS.base, 'flat starting point');
 
     // 2. Light: sun angle × cloud × fog, with a species-specific diel curve.
     const alt = alts[i];

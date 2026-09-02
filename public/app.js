@@ -1,4 +1,4 @@
-import { forecast, PROFILES, SEASON, WATER_TEMP, WEIGHTS, ratingLabel, WATER_TAU_HOURS, COLOUR_HALF_LIFE_HOURS, BOAT_COLOUR_HALF_LIFE_HOURS, lureAdvice, lurePicks } from './src/engine.js';
+import { forecast, PROFILES, WATER_TEMP, WEIGHTS, ratingLabel, WATER_TAU_HOURS, COLOUR_HALF_LIFE_HOURS, BOAT_COLOUR_HALF_LIFE_HOURS, lureAdvice, lurePicks } from './src/engine.js';
 import { fetchForecast, fetchBankHolidays, weatherCodeLabel, normaliseOpenMeteo } from './src/data.js';
 import { findRainGauge, fetchGaugeHourly, applyGaugeRain } from './src/ea.js';
 import { getSunTimes } from './src/astro.js';
@@ -265,7 +265,7 @@ function renderHero() {
   if (today.bestWindow) bits.push(`Best window ${fmtTime(today.bestWindow.start)}–${fmtTime(today.bestWindow.end)} (${today.bestWindow.score.toFixed(1)})`);
   if (now) {
     const top = [...now.parts]
-      .filter((p) => p.key !== 'season')
+      .filter((p) => p.key !== 'base')
       .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
       .slice(0, 2);
     if (top.length) bits.push(top.map((p) => `${p.label.toLowerCase()} ${signed(p.value)}`).join(' · '));
@@ -641,22 +641,10 @@ function renderAbout() {
   const body = $('#aboutBody');
   body.replaceChildren();
   const p = (t) => body.append(el('p', { text: t }));
-  p('Score = season base + additive weather/water/canal components, clamped 0–5. Above 4.0 every extra point counts one third, so a true 5.0 needs an exceptional day. Each component is a single mechanism, so "overcast" and "dusk" never double-count — they both act through the light component.');
+  p('Score = a flat base of ' + WEIGHTS.base.toFixed(1) + ' + additive weather/water/canal components, clamped 0–5. Above 4.0 every extra point counts one third, so a true 5.0 needs an exceptional day. Each component is a single mechanism, so "overcast" and "dusk" never double-count — they both act through the light component.');
   p(`Water temperature is estimated as a ${Math.round((WATER_TAU_HOURS / 24) * 10) / 10}-day exponential average of air temperature plus a small solar term (a 1.3 m canal lags air by 2–3 days). Canal colour is a run-off index with a ${COLOUR_HALF_LIFE_HOURS} h half-life plus a boat-wash term with a ${BOAT_COLOUR_HALF_LIFE_HOURS} h half-life, because propeller-stirred silt settles overnight while rain run-off does not; where an Environment Agency rain gauge is within 15 km its observations replace modelled past rain. Both are proxies, not measurements — read the water when you arrive.`);
   p('Day score = mean of the best three fishable hours (the session you would actually fish), not a 24 h average.');
-  p('Weights follow the evidence: season, water temperature, light and clarity carry the score (telemetry and catch-rate studies). Barometric pressure and solunar periods showed no direct effect in controlled angling studies, so they are small tie-breakers; a ±3-day new/full-moon bonus is kept because two large datasets found a real ~5% effect. Wind direction has no weight — "east wind" acts through temperature and cloud, which are already scored.');
-
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const t = el('table');
-  const hd = el('tr', {}, el('th', { text: 'Season base' }));
-  for (const m of months) hd.append(el('th', { text: m }));
-  t.append(hd);
-  for (const sp of Object.keys(SEASON)) {
-    const r = el('tr', {}, el('td', { text: PROFILES[sp].label }));
-    for (const v of SEASON[sp]) r.append(el('td', { class: 'num', text: v.toFixed(1) }));
-    t.append(r);
-  }
-  body.append(el('div', { class: 'table-wrap' }, t));
+  p('Weights follow the evidence: water temperature, light and clarity carry the score (telemetry and catch-rate studies). Barometric pressure and solunar periods showed no direct effect in controlled angling studies, so they are small tie-breakers; a ±3-day new/full-moon bonus is kept because two large datasets found a real ~5% effect. Wind direction has no weight — "east wind" acts through temperature and cloud, which are already scored.');
 
   const t2 = el('table');
   t2.append(el('tr', {}, el('th', { text: 'Water temp (est.) °C' }), el('th', { text: 'Perch' }), el('th', { text: 'Pike' }), el('th', { text: 'Zander' })));
