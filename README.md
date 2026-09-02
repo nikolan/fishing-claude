@@ -31,7 +31,7 @@ Open `http://127.0.0.1:4390/?mock=1` for a deterministic synthetic fortnight whe
 
 **Species** — perch / pike / zander switch the whole model, not just a label: different season curves, thermal bands, diel windows and reaction to coloured water. Pike carry PAC welfare warnings (≥18 °C, and the 16 Jun – 1 Oct summer break); zander carry a Schedule 9 permit reminder.
 
-**Location** — tap the chip. Presets cover Solihull (Grand Union at Catherine-de-Barnes, Stratford Canal at Shirley), Leamington (Grand Union town centre and Radford Semele), Warwick, Hawkesbury, Braunston, Gas Street, Fradley and Market Bosworth; or use your GPS position, or type a lat/lng. Weather grids are 2–10 km so precision doesn't matter much.
+**Location** — tap the chip. Swims are grouped by the permit that covers them. *LACC waters* are the Lure Anglers Canal Club stretches: the Grand Union at Knowle, Rowington, Hatton, Leamington, Radford Semele, Stockton and Calcutt, and the South Stratford at Lowsonford, Preston Bagot and Wootton Wawen. *LAA waters* are open to LACC members. The rest of the Midlands presets sit on other books. Boundary and parking limits that are easy to get wrong appear under the swim name, but the club page is the authority and the boundaries move. You can also use your GPS position or type a lat/lng. Weather grids are 2–10 km so precision doesn't matter much.
 
 The forecast is cached, so the last one you loaded still shows on the towpath with no signal (the status line says how old it is).
 

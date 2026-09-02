@@ -11,17 +11,65 @@ const STORE_KEY = 'fishing-claude:v1';
 const PREVIEW = typeof window !== 'undefined' && window.__FISHING_CLAUDE_PREVIEW__ === true;
 
 // Midlands canal presets. Coordinates are approximate; weather grids are 2–10 km so it hardly matters.
+//
+// `permit` says whose book covers the stretch, so the picker can group the swims you may fish.
+// LACC is the Lure Anglers Canal Club. LAA is the Leamington Angling Association, whose canal
+// water LACC members may also fish. Entries with no `permit` need a different book.
+//
+// Boundaries follow the LACC waters page. They change, so check the club before you fish a new
+// swim. `note` carries the boundary or access limit that is easy to get wrong on the bank.
 const PRESETS = [
+  // LACC — Grand Union Canal
+  {
+    name: 'Grand Union — Knowle Locks',
+    lat: 52.3829,
+    lng: -1.7229,
+    permit: 'LACC',
+    note: 'Bottom two pounds for zander. Not LACC water south of bridge 70.',
+  },
+  { name: 'Grand Union — Rowington', lat: 52.322, lng: -1.7033, permit: 'LACC' },
+  { name: 'Grand Union — Hatton Locks', lat: 52.2992, lng: -1.6447, permit: 'LACC' },
+  { name: 'Grand Union — Leamington, town centre', lat: 52.2856, lng: -1.522, permit: 'LACC' },
+  { name: 'Grand Union — Radford Semele', lat: 52.2775, lng: -1.4835, permit: 'LACC' },
+  { name: 'Grand Union — Stockton Locks (Blue Lias)', lat: 52.2796, lng: -1.3737, permit: 'LACC' },
+  { name: 'Grand Union — Calcutt Locks', lat: 52.2669, lng: -1.3143, permit: 'LACC' },
+
+  // LACC — South Stratford Canal
+  {
+    name: 'South Stratford — Lowsonford',
+    lat: 52.3083,
+    lng: -1.7279,
+    permit: 'LACC',
+    note: 'Bridge 38 to bridge 47. Park in the Lowsonford layby, B95 5ER.',
+  },
+  { name: 'South Stratford — Preston Bagot', lat: 52.288, lng: -1.7473, permit: 'LACC', note: 'Not LACC water north of bridge 47.' },
+  {
+    name: 'South Stratford — Wootton Wawen',
+    lat: 52.2676,
+    lng: -1.7787,
+    permit: 'LACC',
+    note: 'Bridge 53 to lock 50. Do not park at the Navigation Inn during opening hours.',
+  },
+
+  // LAA — open to LACC members
+  { name: 'Grand Union — Chessetts Wood, Kingswood', lat: 52.3588, lng: -1.7246, permit: 'LAA' },
+
+  // Other Midlands canals, on other books
   { name: 'Solihull — Grand Union, Catherine-de-Barnes', lat: 52.4076, lng: -1.7451 },
   { name: 'Solihull — Stratford Canal, Shirley', lat: 52.3968, lng: -1.8305 },
-  { name: 'Leamington — Grand Union, town centre', lat: 52.2856, lng: -1.522 },
-  { name: 'Leamington — Grand Union, Radford Semele', lat: 52.2775, lng: -1.4835 },
   { name: 'Warwick — Grand Union, Saltisford', lat: 52.282, lng: -1.575 },
   { name: 'Hawkesbury Junction (Coventry / Oxford)', lat: 52.4477, lng: -1.4614 },
   { name: 'Braunston (Grand Union / Oxford)', lat: 52.287, lng: -1.205 },
   { name: 'Gas Street Basin (Birmingham)', lat: 52.4762, lng: -1.9105 },
   { name: 'Fradley Junction (Trent & Mersey / Coventry)', lat: 52.7195, lng: -1.7761 },
   { name: 'Market Bosworth (Ashby)', lat: 52.6215, lng: -1.4012 },
+];
+
+// Picker groups, in display order. `permit` null collects everything on another book.
+const PRESET_GROUPS = [
+  { permit: 'LACC', label: 'LACC waters' },
+  { permit: 'LAA', label: 'LAA waters — open to LACC members' },
+  { permit: null, label: 'Other Midlands canals — another permit' },
 ];
 
 const state = {
@@ -653,23 +701,29 @@ function openLocation() {
   $('#geoMsg').textContent = '';
   const spots = $('#spots');
   spots.replaceChildren();
-  for (const p of PRESETS) {
-    spots.append(
-      el(
-        'button',
-        {
-          type: 'button',
-          'aria-selected': String(state.loc?.name === p.name),
-          onclick: () => {
-            $('#locName').value = p.name;
-            $('#locLat').value = p.lat;
-            $('#locLng').value = p.lng;
+  for (const group of PRESET_GROUPS) {
+    const inGroup = PRESETS.filter((p) => (p.permit ?? null) === group.permit);
+    if (!inGroup.length) continue;
+    spots.append(el('h4', { class: 'spots-head', text: group.label }));
+    for (const p of inGroup) {
+      spots.append(
+        el(
+          'button',
+          {
+            type: 'button',
+            'aria-selected': String(state.loc?.name === p.name),
+            onclick: () => {
+              $('#locName').value = p.name;
+              $('#locLat').value = p.lat;
+              $('#locLng').value = p.lng;
+            },
           },
-        },
-        p.name,
-        el('small', { text: `${p.lat.toFixed(3)}, ${p.lng.toFixed(3)}` }),
-      ),
-    );
+          p.name,
+          el('small', { text: `${p.lat.toFixed(3)}, ${p.lng.toFixed(3)}` }),
+          p.note ? el('small', { class: 'spot-note', text: p.note }) : null,
+        ),
+      );
+    }
   }
   dlg.showModal();
 }
