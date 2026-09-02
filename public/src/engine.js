@@ -138,8 +138,17 @@ export const WEIGHTS = {
 // solar-gain term, floored at 0 °C.
 export const WATER_TAU_HOURS = 60;
 export const WATER_SOLAR_GAIN = 1.5; // °C at a 24h-mean brightness of 1.0
-// Canal colour proxy: run-off + boat-wash accumulator, ~2-day half-life.
+// Canal colour proxy: run-off and boat-wash accumulators, summed.
+//
+// The two inputs clear at very different rates, so they get separate half-lives.
+// Rain run-off carries suspended clay that stays up for days. Boat wash is a
+// propeller stirring silt off the bed, and it settles within hours of the last
+// boat. Running both through one 48 h accumulator made boat wash behave like
+// rain: it added a near-constant offset of about 13 index points to every
+// summer day, which put "clear" out of reach between May and September and
+// swamped the rainfall signal the index exists to carry.
 export const COLOUR_HALF_LIFE_HOURS = 48;
+export const BOAT_COLOUR_HALF_LIFE_HOURS = 6;
 export const BOAT_COLOUR_INPUT = { busy: 0.6, normal: 0.3, shoulder: 0.1, none: 0 }; // mm-equivalent per hour
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -218,14 +227,21 @@ export function waterTempSeries(temps, bright, tauHours = WATER_TAU_HOURS) {
   return out;
 }
 
-/** Decaying run-off + boat-wash accumulator = canal colour proxy (mm-equivalent). */
-export function colourSeries(precip, boatInput, halfLifeHours = COLOUR_HALF_LIFE_HOURS) {
-  const k = Math.pow(0.5, 1 / halfLifeHours);
+/**
+ * Canal colour proxy (mm-equivalent): run-off and boat-wash accumulators summed.
+ * Run-off decays over days, boat wash over hours. See the note on the half-life
+ * constants for why they are kept apart.
+ */
+export function colourSeries(precip, boatInput, halfLifeHours = COLOUR_HALF_LIFE_HOURS, boatHalfLifeHours = BOAT_COLOUR_HALF_LIFE_HOURS) {
+  const kRain = Math.pow(0.5, 1 / halfLifeHours);
+  const kBoat = Math.pow(0.5, 1 / boatHalfLifeHours);
   const out = new Array(precip.length);
-  let acc = 0;
+  let rain = 0;
+  let boat = 0;
   for (let i = 0; i < precip.length; i++) {
-    acc = acc * k + (Number.isFinite(precip[i]) ? precip[i] : 0) + (boatInput ? boatInput[i] || 0 : 0);
-    out[i] = acc;
+    rain = rain * kRain + (Number.isFinite(precip[i]) ? precip[i] : 0);
+    boat = boat * kBoat + (boatInput ? boatInput[i] || 0 : 0);
+    out[i] = rain + boat;
   }
   return out;
 }

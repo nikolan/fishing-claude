@@ -16,7 +16,7 @@ This document is the spec for `public/src/engine.js`. Every weight below is a co
 | Temperature (air) bands | **Water temperature proxy** (2.5-day EWMA of air + solar term) with species-specific bands; plus a 3-day **trend** term | Water, not air, drives fish; Casselman / Craig / Frisk give the bands |
 | Wind speed thresholds | Kept, with ripple bonus and gust penalty; wind **direction weight 0** | "East wind" acts via air mass (temperature, cloud) — grade C on its own |
 | Solunar +0.3 optional | Off by default, +0.15 major / +0.05 minor if enabled; **new/full moon ±3 days +0.15** on by default | Quigley 2023: solunar tables have zero predictive value; syzygy effect (~5%) is real in two large datasets |
-| — | **Canal colour index** (rain run-off + boat wash, 48 h half-life) | The main perch-vs-zander differentiator (Ljunggren & Sandström 2007) |
+| — | **Canal colour index** (rain run-off, 48 h half-life, plus boat wash, 6 h half-life) | The main perch-vs-zander differentiator (Ljunggren & Sandström 2007) |
 | — | **Boat traffic** disturbance (season × weekday × bank holiday × hour) | Biggest non-weather driver on canals |
 | — | Cold-snap / mild-spell / frost / ice / thunder / pike-welfare flags | Safety and welfare |
 | Hard clamp at 5 | Soft cap: above 4.0 excess counts ⅓, hard cap 5 | Reproduces your "5.6 → ~4.5" behaviour explicitly |
@@ -176,3 +176,30 @@ Worked example (your 30 Aug day, perch, 16 °C for a week, 85 % cloud, showers, 
 - Edinger J.E. et al. (1968) response of water temperatures to meteorological conditions. *Water Resources Research*
 - Pike Anglers' Club — warm-water piking guidance (≥ 18 °C).
 - EA close-season byelaw background (canal exemption, 2000); CRT zander FAQs; Angling Trust zander position (2021).
+
+
+## Canal colour: why run-off and boat wash decay at different rates
+
+The colour index sums two accumulators rather than one.
+
+Rain run-off carries suspended clay into the cut and it stays up for days, so it
+keeps a 48-hour half-life. Boat wash is different in kind: a propeller lifts silt
+off the bed, and it settles within a few hours of the last boat. It now decays
+with a 6-hour half-life.
+
+Both inputs originally shared the 48-hour accumulator. That made boat wash behave
+like rainfall. Because canal traffic runs most days through the summer, the term
+never drained, and it added a standing offset of roughly 13 index points to every
+day between May and September. Three consequences followed:
+
+- The index could not read "clear" in summer, however long the dry spell. Six
+  rainless days in August 2026 still reported "coloured".
+- The offset was near-constant day to day, so it carried no information while
+  consuming most of the scale the index is measured on.
+- It pushed ordinary days across the 25-point threshold into "chocolate", where
+  perch take the model's largest single penalty.
+
+Splitting the half-lives leaves rainfall as the signal the index exists to carry
+and returns boat wash to what it physically is: a daytime disturbance that clears
+overnight. It also gives the index a daily cycle, so a morning and an afternoon on
+the same day no longer score identically on colour.

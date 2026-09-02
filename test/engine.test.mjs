@@ -92,18 +92,36 @@ test('water temperature proxy lags air temperature; solar gain small and non-neg
   assert.ok(waterTempSeries(new Array(48).fill(-5)).every((v) => v >= 0));
 });
 
-test('colour proxy: 48h half-life, boats keep a summer canal permanently tinged/coloured', () => {
+test('colour proxy: run-off keeps a 48h half-life', () => {
   const p = new Array(100).fill(0);
   p[0] = 20;
   const c = colourSeries(p);
   assert.ok(Math.abs(c[0] - 20) < 1e-9);
   assert.ok(Math.abs(c[48] - 10) < 0.05, `half-life ${c[48]}`);
-  // Busy boat traffic 9 hours/day for 3 weeks with no rain: settles in the coloured band.
+});
+
+test('colour proxy: boat wash settles overnight instead of accumulating', () => {
+  // Busy boat traffic 9 hours a day for 3 weeks, no rain at all. Boat wash must
+  // not build a standing offset: dawn has to come back to clear water, or the
+  // index can never read "clear" in summer and rainfall stops being visible.
   const n = 21 * 24;
   const boats = Array.from({ length: n }, (_, i) => (i % 24 >= 9 && i % 24 < 18 ? BOAT_COLOUR_INPUT.busy : 0));
   const cb = colourSeries(new Array(n).fill(0), boats);
+  const dawnLast = cb[n - 24 + 6];
   const noonLast = cb[n - 12];
-  assert.ok(noonLast >= 12 && noonLast < 25, `summer boat colour ${noonLast}`);
+  assert.ok(dawnLast < 2, `dawn after 3 boat-heavy weeks should be near clear, got ${dawnLast}`);
+  assert.ok(noonLast > dawnLast, 'boats must still colour the water during the day');
+  assert.ok(noonLast < 5, `afternoon boat wash alone should stay clear-ish, got ${noonLast}`);
+});
+
+test('colour proxy: rainfall dominates boat wash after a real flush', () => {
+  const n = 10 * 24;
+  const boats = Array.from({ length: n }, (_, i) => (i % 24 >= 9 && i % 24 < 18 ? BOAT_COLOUR_INPUT.busy : 0));
+  const rain = new Array(n).fill(0);
+  for (let i = 24; i < 48; i++) rain[i] = 1.5; // 36 mm over a day
+  const c = colourSeries(rain, boats);
+  assert.ok(c[48] > 25, `a 36 mm flush should read chocolate, got ${c[48]}`);
+  assert.ok(c[n - 1] < c[48], 'and it should fall back as the run-off clears');
 });
 
 test('boat traffic classes and pike summer break', () => {

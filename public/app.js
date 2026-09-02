@@ -1,4 +1,4 @@
-import { forecast, PROFILES, SEASON, WATER_TEMP, WEIGHTS, ratingLabel, WATER_TAU_HOURS, COLOUR_HALF_LIFE_HOURS } from './src/engine.js';
+import { forecast, PROFILES, SEASON, WATER_TEMP, WEIGHTS, ratingLabel, WATER_TAU_HOURS, COLOUR_HALF_LIFE_HOURS, BOAT_COLOUR_HALF_LIFE_HOURS } from './src/engine.js';
 import { fetchForecast, fetchBankHolidays, weatherCodeLabel, normaliseOpenMeteo } from './src/data.js';
 import { findRainGauge, fetchGaugeHourly, applyGaugeRain } from './src/ea.js';
 import { getSunTimes } from './src/astro.js';
@@ -607,7 +607,7 @@ function renderAbout() {
   body.replaceChildren();
   const p = (t) => body.append(el('p', { text: t }));
   p('Score = season base + additive weather/water/canal components, clamped 0–5. Above 4.0 every extra point counts one third, so a true 5.0 needs an exceptional day. Each component is a single mechanism, so "overcast" and "dusk" never double-count — they both act through the light component.');
-  p(`Water temperature is estimated as a ${Math.round((WATER_TAU_HOURS / 24) * 10) / 10}-day exponential average of air temperature plus a small solar term (a 1.3 m canal lags air by 2–3 days). Canal colour is a run-off + boat-wash index with a ${COLOUR_HALF_LIFE_HOURS} h half-life; where an Environment Agency rain gauge is within 15 km its observations replace modelled past rain. Both are proxies, not measurements — read the water when you arrive.`);
+  p(`Water temperature is estimated as a ${Math.round((WATER_TAU_HOURS / 24) * 10) / 10}-day exponential average of air temperature plus a small solar term (a 1.3 m canal lags air by 2–3 days). Canal colour is a run-off index with a ${COLOUR_HALF_LIFE_HOURS} h half-life plus a boat-wash term with a ${BOAT_COLOUR_HALF_LIFE_HOURS} h half-life, because propeller-stirred silt settles overnight while rain run-off does not; where an Environment Agency rain gauge is within 15 km its observations replace modelled past rain. Both are proxies, not measurements — read the water when you arrive.`);
   p('Day score = mean of the best three fishable hours (the session you would actually fish), not a 24 h average.');
   p('Weights follow the evidence: season, water temperature, light and clarity carry the score (telemetry and catch-rate studies). Barometric pressure and solunar periods showed no direct effect in controlled angling studies, so they are small tie-breakers; a ±3-day new/full-moon bonus is kept because two large datasets found a real ~5% effect. Wind direction has no weight — "east wind" acts through temperature and cloud, which are already scored.');
 
