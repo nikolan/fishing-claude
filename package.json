@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Hour-by-hour perch / pike / zander feeding forecast for Midlands canals. Static PWA, no build step, no API keys.",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.mjs",
     "build": "node scripts/build-single.mjs",
     "icons": "node scripts/make-icons.mjs",
     "serve": "python3 -m http.server 4390 --directory public"
