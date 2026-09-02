@@ -13,6 +13,8 @@ import {
   twilightSeasonFactor,
   pikeSummerBreak,
   BOAT_COLOUR_INPUT,
+  RUNOFF_COLOUR_COEFF,
+  PROFILES,
 } from '../public/src/engine.js';
 
 const LAT = 52.41;
@@ -96,8 +98,9 @@ test('colour proxy: run-off keeps a 48h half-life', () => {
   const p = new Array(100).fill(0);
   p[0] = 20;
   const c = colourSeries(p);
-  assert.ok(Math.abs(c[0] - 20) < 1e-9);
-  assert.ok(Math.abs(c[48] - 10) < 0.05, `half-life ${c[48]}`);
+  const peak = 20 * RUNOFF_COLOUR_COEFF;
+  assert.ok(Math.abs(c[0] - peak) < 1e-9, `peak ${c[0]}`);
+  assert.ok(Math.abs(c[48] - peak / 2) < 0.05, `half-life ${c[48]}`);
 });
 
 test('colour proxy: boat wash settles overnight instead of accumulating', () => {
@@ -120,7 +123,10 @@ test('colour proxy: rainfall dominates boat wash after a real flush', () => {
   const rain = new Array(n).fill(0);
   for (let i = 24; i < 48; i++) rain[i] = 1.5; // 36 mm over a day
   const c = colourSeries(rain, boats);
-  assert.ok(c[48] > 25, `a 36 mm flush should read chocolate, got ${c[48]}`);
+  // 36 mm on an impounded canal tinges it. The same figure on a river catchment
+  // would run chocolate; see RUNOFF_COLOUR_COEFF for why the two differ.
+  assert.ok(c[48] > 5, `a 36 mm flush should leave clear water, got ${c[48]}`);
+  assert.ok(c[48] < 25, `and should not read chocolate on a canal, got ${c[48]}`);
   assert.ok(c[n - 1] < c[48], 'and it should fall back as the run-off clears');
 });
 
@@ -177,11 +183,11 @@ test('bright, calm, post-frontal day is poor for perch at noon; zander peak is t
   assert.ok(zDusk.parts.find((p) => p.key === 'light').note.includes('after dusk'));
 });
 
-test('heavy rain colours the canal: perch penalised, zander rewarded', () => {
+test('a heavy flush: perch neutral in coloured water, zander rewarded', () => {
   const wx = synth('2026-10-01T00:00:00Z', 4, (i) => ({
     temp: 12,
     cloud: 90,
-    precip: i >= 48 && i < 60 ? 5 : 0,
+    precip: i >= 72 && i < 84 ? 5 : 0,
     pressure: 1010,
     wind: 10,
   }));
@@ -190,9 +196,9 @@ test('heavy rain colours the canal: perch penalised, zander rewarded', () => {
   const idx = 72 + 12;
   const pc = perch[idx].parts.find((p) => p.key === 'colour');
   const zc = zander[idx].parts.find((p) => p.key === 'colour');
-  assert.ok(pc.value < -0.3, `perch colour ${pc.value}`);
+  assert.ok(Math.abs(pc.value) < 0.05, `perch should be neutral in coloured water, got ${pc.value}`);
   assert.ok(zc.value > 0.2, `zander colour ${zc.value}`);
-  assert.ok(perch[idx].colour > 25);
+  assert.ok(perch[idx].colour > 12, `colour ${perch[idx].colour}`);
 });
 
 test('cold snap (3-day means) and frost are penalised; ice flag raised', () => {
@@ -264,4 +270,22 @@ test('NaN weather values (model gaps) do not poison the score', () => {
   const wx = synth('2026-09-01T00:00:00Z', 3, (i) => ({ temp: i % 7 === 0 ? NaN : 15, cloud: NaN, precip: NaN, pressure: NaN, wind: NaN, visibility: NaN }));
   const hours = scoreHours(wx, ctxFor('perch'));
   for (const h of hours) assert.ok(Number.isFinite(h.score), `score NaN at ${h.time}`);
+});
+
+test('perch colour response is an inverted U, peaking in tinged water', () => {
+  const band = (v) => PROFILES.perch.colour.find(([lo, hi]) => v >= lo && v < hi)[2];
+  const ginClear = band(2);
+  const tinged = band(8);
+  const coloured = band(18);
+  const chocolate = band(40);
+  assert.ok(tinged > ginClear, 'tinged must beat gin-clear: perch are warier in clear water');
+  assert.ok(tinged > coloured, 'tinged must beat coloured: reaction distance is already falling');
+  assert.ok(coloured > chocolate, 'chocolate is the worst: perch cannot see the lure');
+  assert.ok(ginClear < 0, 'gin-clear water should carry a small penalty, not a reward');
+});
+
+test('zander still prefer the coloured end, and diverge from perch there', () => {
+  const bandFor = (sp, v) => PROFILES[sp].colour.find(([lo, hi]) => v >= lo && v < hi)[2];
+  assert.ok(bandFor('zander', 18) > bandFor('perch', 18), 'zander beat perch in coloured water');
+  assert.ok(bandFor('zander', 18) > bandFor('zander', 2), 'zander prefer colour to gin-clear');
 });

@@ -67,11 +67,25 @@ export const PROFILES = {
     daySlope: 1.5,
     brightColourRelief: 0.3, // bright-midday penalty shrinks this much in coloured water
     rain: { light: 0.3, moderate: 0.1, heavy: -0.2 },
+    // Inverted U, peaking in tinged water. Two mechanisms pull against each other.
+    //
+    // Foraging: perch hunt by sight, and reaction distance falls as turbidity
+    // rises, so feeding efficiency is best in clear water (Radke & Gaupisch 2005;
+    // Ljunggren & Sandström 2007). That favours the clear end.
+    //
+    // Catchability: in clear water perch are warier, hold deeper and inspect a
+    // lure before taking it, while turbidity is also a refuge from their own
+    // predators. Measured catchability of perch runs about threefold higher in
+    // low-clarity years than in clear ones. That favours the coloured end.
+    //
+    // The angler meets the product of the two, not either alone, so the best
+    // water is neither gin clear nor chocolate. The model used to encode only the
+    // foraging half and so rewarded the clearest water it could find.
     colour: [
-      [0, 5, 0.1],
-      [5, 12, 0],
-      [12, 25, -0.35],
-      [25, 999, -0.7],
+      [0, 5, -0.2],
+      [5, 12, 0.3],
+      [12, 25, 0],
+      [25, 999, -0.5],
     ],
     boats: { busy: -0.3, normal: -0.15, shoulder: -0.05 },
     windFresh: -0.15,
@@ -149,6 +163,18 @@ export const WATER_SOLAR_GAIN = 1.5; // °C at a 24h-mean brightness of 1.0
 // swamped the rainfall signal the index exists to carry.
 export const COLOUR_HALF_LIFE_HOURS = 48;
 export const BOAT_COLOUR_HALF_LIFE_HOURS = 6;
+
+// Index units per mm of rain. A canal is not a river. It is impounded, level-
+// controlled by weirs, and has almost no upstream catchment delivering suspended
+// load, so rain mostly raises the level rather than carrying clay in. With no
+// current to hold silt up, what does get stirred settles out.
+//
+// The model used to count 1 mm of rain as 1 index unit, which is a river
+// catchment's response. That read 44.6 mm over three days as "coloured" water
+// when the canal was in fact quite clear. This coefficient is set from two
+// clarity observations at Knowle, so treat the exact value as provisional: the
+// direction and rough scale are supported, the second digit is not.
+export const RUNOFF_COLOUR_COEFF = 0.3;
 export const BOAT_COLOUR_INPUT = { busy: 0.6, normal: 0.3, shoulder: 0.1, none: 0 }; // mm-equivalent per hour
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -239,7 +265,7 @@ export function colourSeries(precip, boatInput, halfLifeHours = COLOUR_HALF_LIFE
   let rain = 0;
   let boat = 0;
   for (let i = 0; i < precip.length; i++) {
-    rain = rain * kRain + (Number.isFinite(precip[i]) ? precip[i] : 0);
+    rain = rain * kRain + (Number.isFinite(precip[i]) ? precip[i] * RUNOFF_COLOUR_COEFF : 0);
     boat = boat * kBoat + (boatInput ? boatInput[i] || 0 : 0);
     out[i] = rain + boat;
   }

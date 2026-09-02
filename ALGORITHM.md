@@ -203,3 +203,42 @@ Splitting the half-lives leaves rainfall as the signal the index exists to carry
 and returns boat wash to what it physically is: a daytime disturbance that clears
 overnight. It also gives the index a daily cycle, so a morning and an afternoon on
 the same day no longer score identically on colour.
+
+
+## Perch and water colour: why the response is a hump, not a slope
+
+The perch colour term used to fall away monotonically, rewarding the clearest
+water available and penalising anything coloured. That encodes one half of the
+biology and none of the angling.
+
+Two mechanisms act in opposite directions.
+
+**Foraging efficiency favours clear water.** Perch hunt by sight. Reaction
+distance shortens as turbidity rises, and feeding rate falls with it
+(Radke & Gaupisch 2005; Ljunggren & Sandström 2007). On this mechanism alone,
+gin-clear water is best.
+
+**Catchability favours coloured water.** In clear water perch are warier, hold
+deeper, and have time to inspect a lure and refuse it. Turbidity is also a
+refuge from their own predators, so fish use the margins more freely. Measured
+perch catchability runs roughly threefold higher in low-clarity years than in
+clear ones.
+
+An angler meets the product of the two, not either one alone. That product peaks
+somewhere in between, which is why the response is now an inverted U:
+
+| Index | Water | Perch |
+| --- | --- | --- |
+| 0–5 | clear | −0.2 |
+| 5–12 | tinged | +0.3 |
+| 12–25 | coloured | 0 |
+| 25+ | chocolate | −0.5 |
+
+Zander are left rewarding the coloured end throughout. They are adapted to low
+light and gain on perch as visibility drops, which is the main reason the two
+species need separate models at all.
+
+The hump was prompted by two sessions at Knowle: an outstanding morning in
+lightly coloured water after heavy rain, and a poor evening in the clearest
+water the angler had seen there. Two sessions cannot fix a curve. The literature
+above is what justifies the shape; the sessions only pointed at it.
