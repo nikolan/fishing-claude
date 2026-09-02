@@ -616,8 +616,13 @@ function renderBreakdown(h) {
       ),
     );
   }
-  const capped = h.raw > WEIGHTS.softCapStart;
-  table.append(el('tr', { class: 'total' }, el('td', { text: capped ? `Total (raw ${h.raw.toFixed(1)}, soft-capped)` : 'Total' }), el('td', { class: 'v', text: h.score.toFixed(1) })));
+  const clamped = h.raw < 0 || h.raw > 5;
+  table.append(
+    el('tr', { class: 'total' },
+      el('td', { text: clamped ? `Total (raw ${h.raw.toFixed(1)}, clamped to 0–5)` : 'Total' }),
+      el('td', { class: 'v', text: h.score.toFixed(1) }),
+    ),
+  );
   box.append(table);
   return box;
 }
@@ -684,10 +689,6 @@ function renderAbout() {
   row('Light: overcast day (≈)', (pr) => signed(pr.dayBase - pr.daySlope * 0.3));
   row('Light: clear midday (≈)', (pr) => signed(pr.dayBase - pr.daySlope * 1.0));
   row('Rain light / moderate / heavy', (pr) => `${signed(pr.rain.light)} / ${signed(pr.rain.moderate)} / ${signed(pr.rain.heavy)}`);
-  row('Colour: coloured / chocolate', (pr) => {
-    const at = (v) => pr.colour.find(([a, b]) => v >= a && v < b)?.[2] ?? 0;
-    return `${signed(at(18))} / ${signed(at(30))}`;
-  });
   row('Boats: busy / moderate', (pr) => `${signed(pr.boats.busy)} / ${signed(pr.boats.normal)}`);
   row('Wind 13–20 mph', (pr) => signed(pr.windFresh));
   row('Cold snap multiplier', (pr) => `×${pr.coldSnap}`);
@@ -824,12 +825,33 @@ function wireUi() {
   }, 60000);
 }
 
+
+/** A one-tap reload when the service worker has pulled down a newer build. */
+function showUpdateBar() {
+  if ($('#updateBar')) return;
+  const bar = el(
+    'button',
+    {
+      id: 'updateBar',
+      type: 'button',
+      class: 'update-bar',
+      onclick: () => location.reload(),
+    },
+    'A newer version is ready. Tap to reload.',
+  );
+  document.body.append(bar);
+}
+
 async function main() {
   load();
   wireUi();
   renderAbout();
   if ('serviceWorker' in navigator && !PREVIEW && location.protocol.startsWith('http') && !new URLSearchParams(location.search).has('nosw')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
+    // The worker tells us when it has fetched a newer build than the one running.
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data?.type === 'shell-updated') showUpdateBar();
+    });
   }
   if (!state.loc) {
     state.loc = PRESETS[0];

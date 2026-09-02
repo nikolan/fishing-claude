@@ -275,3 +275,52 @@ sum, not removing the constant they sat on.
 
 Restore `SEASON` and `seasonBase` from git history if the seasonal signal is
 wanted back.
+
+
+## Water clarity was removed from the score
+
+The canal colour term no longer contributes to the score, for any species. The
+bright-midday "colour relief", which let coloured water soften the glare penalty
+inside the light term, is gone with it, so clarity now reaches the score by no
+path at all. The per-species colour bands are deleted.
+
+The clarity index itself is still computed, and still does two jobs: it fills the
+"Canal colour" fact on each day, and it drives the lure guidance, where the
+inverted-U reasoning now lives. That is the honest home for it. Clarity clearly
+changes what you should tie on. Whether it changes how well the fish feed is a
+claim this model could not support with the estimate it had.
+
+## The condition terms carry the whole scale
+
+The score is now `base + gain x (sum of condition terms)`, clamped to 0-5, with
+no soft cap.
+
+Each term is small on its own: light moves about 1.0, water temperature 0.5, and
+everything else 0.3 or less. Added raw to a flat base they spanned roughly 3.3 to
+4.1 across three weeks, so no day read bad and none read excellent. A gain of
+1.05 gives them authority over the full range.
+
+The gain is set from the terms' own limits rather than from a sample. Stacking
+every plausible positive for perch (dawn +0.8, water temperature +0.5, a mild
+spell +0.3, light rain +0.3, a good ripple +0.15, falling pressure +0.2, a
+new or full moon +0.15) sums to about 2.4, which lands on 5.0. Stacking the
+negatives (darkness, cold water, a gale, frost, busy boats, pressure rising
+behind a cold front) reaches about -3.6, which clamps to 0.
+
+A 5.0 therefore needs almost everything to line up at once. A strong, realistic
+October dawn with rain, ripple and falling pressure reaches 4.5.
+
+One thing the gain does not fix. The headline number on each day tile is the mean
+of that day's three best hours, so it tracks the day's peak and stays high in
+settled weather. The hourly chart is where the new range shows.
+
+## The service worker was serving stale builds
+
+The app shell was cached first with a fixed version string, so once a phone had
+installed the app, no deployed change ever reached it. The engine could be
+rewritten and the towpath would still show the old numbers and the old breakdown.
+
+The shell is now stale-while-revalidate. The cached copy still answers instantly,
+a fresh copy is fetched in the background, and when the two differ the page shows
+a "newer version is ready" bar that reloads on tap. Offline behaviour is
+unchanged.

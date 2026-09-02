@@ -60,28 +60,7 @@ export const PROFILES = {
     afterDusk: -0.4, // first 3h after civil dusk = night for perch
     dayBase: 0.8, // day score = dayBase - daySlope * brightness
     daySlope: 1.5,
-    brightColourRelief: 0.3, // bright-midday penalty shrinks this much in coloured water
     rain: { light: 0.3, moderate: 0.1, heavy: -0.2 },
-    // Inverted U, peaking in tinged water. Two mechanisms pull against each other.
-    //
-    // Foraging: perch hunt by sight, and reaction distance falls as turbidity
-    // rises, so feeding efficiency is best in clear water (Radke & Gaupisch 2005;
-    // Ljunggren & Sandström 2007). That favours the clear end.
-    //
-    // Catchability: in clear water perch are warier, hold deeper and inspect a
-    // lure before taking it, while turbidity is also a refuge from their own
-    // predators. Measured catchability of perch runs about threefold higher in
-    // low-clarity years than in clear ones. That favours the coloured end.
-    //
-    // The angler meets the product of the two, not either alone, so the best
-    // water is neither gin clear nor chocolate. The model used to encode only the
-    // foraging half and so rewarded the clearest water it could find.
-    colour: [
-      [0, 5, -0.2],
-      [5, 12, 0.3],
-      [12, 25, 0],
-      [25, 999, -0.5],
-    ],
     boats: { busy: -0.3, normal: -0.15, shoulder: -0.05 },
     windFresh: -0.15,
     coldSnap: 1.0,
@@ -94,13 +73,7 @@ export const PROFILES = {
     afterDusk: -0.1,
     dayBase: 0.5,
     daySlope: 0.8,
-    brightColourRelief: 0,
     rain: { light: 0.2, moderate: 0.1, heavy: -0.2 },
-    colour: [
-      [0, 12, 0],
-      [12, 25, 0.1],
-      [25, 999, 0],
-    ],
     boats: { busy: -0.2, normal: -0.1, shoulder: -0.05 },
     windFresh: 0.1, // pike CPUE rose with wind (Kuparinen 2010)
     coldSnap: 1.0,
@@ -113,13 +86,7 @@ export const PROFILES = {
     afterDusk: 0.9, // dusk → ~3h after: the primary window
     dayBase: 0.2,
     daySlope: 1.5,
-    brightColourRelief: 0.5, // coloured water flattens zander's diel curve
     rain: { light: 0.2, moderate: 0.2, heavy: 0.1 },
-    colour: [
-      [0, 5, 0],
-      [5, 12, 0.25],
-      [12, 999, 0.5],
-    ],
     boats: { busy: -0.15, normal: -0.05, shoulder: 0 },
     windFresh: 0,
     coldSnap: 0.5,
@@ -138,6 +105,20 @@ export const WEIGHTS = {
   // still tracks the calendar, and it is a flag rather than a score. Restore the
   // table from git history if the seasonal signal is wanted back.
   base: 2.5,
+  // Every condition term is multiplied by this before it is added to the base.
+  // The terms are individually small: light moves about 1.0, water temperature
+  // 0.5, and the rest 0.3 or less. Summed and added raw to the base they spanned
+  // roughly 3.3 to 4.1 over three weeks, so no day ever read bad and none ever
+  // read excellent. The gain gives them authority over the whole 0-5 range: a
+  // genuinely good combination now reaches 5.0 and a genuinely bad one reaches 0.
+  //
+  // Set from the terms' own limits, not from a sample. Stacking every plausible
+  // positive for perch (dawn +0.8, water +0.5, mild spell +0.3, light rain +0.3,
+  // ripple +0.15, falling pressure +0.2, syzygy +0.15) sums to about 2.4, so a
+  // gain of 1.05 puts that day at 5.0. Stacking the negatives (dark, cold water,
+  // gale, frost, busy boats, rising pressure behind a cold front) reaches about
+  // -3.6, which clamps to 0. Five stays rare and has to be earned.
+  gain: 1.05,
   // Tie-breakers only: controlled studies find no direct pressure effect.
   pressure: { falling: 0.2, risingClearingCold: -0.3 },
   // 3-day mean vs previous 3-day mean of air temperature.
@@ -148,8 +129,9 @@ export const WEIGHTS = {
   thunder: -0.5,
   frost: -0.5,
   pikeWelfareTemp: 18,
-  softCapStart: 4.0,
-  softCapDivisor: 3,
+  // The soft cap above 4.0 was removed with the gain. Its job was to keep a pile
+  // of small bonuses from running past 5; the gain sets the range directly, so a
+  // plain clamp is honest and a compressed top end is not.
 };
 
 // Water-temperature proxy: exponential moving average of air temperature with
@@ -197,11 +179,9 @@ export function twilightSeasonFactor(month) {
   return 0.6; // Jun–Aug
 }
 
-export function softCap(raw) {
-  const { softCapStart, softCapDivisor } = WEIGHTS;
-  if (raw <= 0) return 0;
-  if (raw <= softCapStart) return raw;
-  return Math.min(5, softCapStart + (raw - softCapStart) / softCapDivisor);
+/** Clamp a raw score to the 0-5 scale. */
+export function clampScore(raw) {
+  return Math.min(5, Math.max(0, raw));
 }
 
 /** Brightness 0..1: 0 at night, ~1 at clear noon, ~0.3 overcast noon. */
@@ -366,7 +346,6 @@ export function scoreHours(wx, ctx) {
     const cloud = wx.cloud[i];
     const B = brights[i];
     const c = colour[i];
-    const coloured = c >= 12;
     const di = dayInfo(lp);
     // "After dusk" = the 3h following civil dusk (yesterday's dusk for the small hours).
     let sinceDusk = Number.isFinite(di.dusk) ? t - di.dusk : NaN;
@@ -390,12 +369,10 @@ export function scoreHours(wx, ctx) {
       lightNote = alt < 0 ? 'twilight' : 'low sun';
       if (twilightSeasonFactor(lp.month) < 1) lightNote += ' (summer: weaker peak)';
     } else {
-      const relief = coloured ? prof.brightColourRelief : 0;
-      lightPts = prof.dayBase - prof.daySlope * B * (1 - relief);
+      lightPts = prof.dayBase - prof.daySlope * B;
       lightNote = cloud >= 70 ? `overcast ${Math.round(cloud)}%` : cloud >= 40 ? `partly cloudy ${Math.round(cloud)}%` : `bright, ${Math.round(cloud)}% cloud`;
       const vis = wx.visibility ? wx.visibility[i] : NaN;
       if (Number.isFinite(vis) && vis < 2000) lightNote += ', murky/fog';
-      if (relief && B > 0.5) lightNote += ', coloured water softens glare';
     }
     add('light', 'Light', lightPts, lightNote);
 
@@ -447,8 +424,9 @@ export function scoreHours(wx, ctx) {
     else if (p >= 1.5) add('rain', 'Rain', prof.rain.moderate, `moderate ${p.toFixed(1)} mm/h`);
     else if (p >= 0.1) add('rain', 'Rain', prof.rain.light, `light ${p.toFixed(1)} mm/h`);
 
-    // 7. Canal colour (rain run-off + boat wash)
-    add('colour', 'Water colour', band(prof.colour, c), `${colourLabel(c)} (index ${c.toFixed(0)})`);
+    // 7. Canal colour no longer scores. The index is still computed, and still
+    // drives the lure guidance and the facts panel, but it does not move the
+    // score. See "Water clarity was removed from the score" in ALGORITHM.md.
 
     // 8. Wind (speed only; direction acts through air mass = temperature/cloud)
     const wind = wx.wind[i];
@@ -505,8 +483,11 @@ export function scoreHours(wx, ctx) {
       if (hit) add('solunar', 'Solunar', WEIGHTS.solunar[hit], `${hit} period (traditional)`);
     }
 
-    const raw = parts.reduce((s, x) => s + x.value, 0);
-    const score = round1(softCap(raw));
+    // Base plus gain-weighted conditions. The base is a level, not a condition,
+    // so the gain must not touch it.
+    const conditions = parts.reduce((s, x) => (x.key === 'base' ? s : s + x.value), 0);
+    const raw = WEIGHTS.base + WEIGHTS.gain * conditions;
+    const score = round1(clampScore(raw));
     const fishable = prof.fishableNight || alt >= -8;
     results.push({
       time: t,

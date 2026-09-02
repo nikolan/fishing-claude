@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  softCap,
+  clampScore,
   brightness,
   waterTempSeries,
   colourSeries,
@@ -46,12 +46,12 @@ function synth(startIso, days, fn) {
   return wx;
 }
 
-test('soft cap: linear to 4, then one third, hard cap 5', () => {
-  assert.equal(softCap(3.2), 3.2);
-  assert.equal(softCap(4.0), 4.0);
-  assert.ok(Math.abs(softCap(5.6) - 4.533) < 0.01);
-  assert.equal(softCap(9), 5);
-  assert.equal(softCap(-1), 0);
+test('scores clamp to the 0-5 scale', () => {
+  assert.equal(clampScore(3.2), 3.2);
+  assert.equal(clampScore(5.4), 5);
+  assert.equal(clampScore(-1.2), 0);
+  assert.equal(clampScore(0), 0);
+  assert.equal(clampScore(5), 5);
 });
 
 test('brightness: night 0, clear noon ~1, overcast noon ~0.3, fog halves it, NaN cloud tolerated', () => {
@@ -143,7 +143,7 @@ test("user's example day (30 Aug, showers, overcast, falling pressure, 16°C) is
   assert.ok(day, 'expected 30 Aug summary');
   assert.ok(day.score >= 3.8 && day.score <= 4.6, `score ${day.score}`);
   const keys = new Set(day.hours[12].parts.map((p) => p.key));
-  for (const k of ['base', 'light', 'water', 'pressure', 'rain', 'colour', 'wind']) assert.ok(keys.has(k), `missing ${k}`);
+  for (const k of ['base', 'light', 'water', 'pressure', 'rain', 'wind']) assert.ok(keys.has(k), `missing ${k}`);
   // Pressure is a tie-breaker now: never more than +0.2.
   const pr = day.hours[12].parts.find((p) => p.key === 'pressure');
   assert.ok(pr.value <= 0.2);
@@ -168,24 +168,6 @@ test('bright, calm, post-frontal day is poor for perch at noon; zander peak is t
   assert.ok(zDusk.score > zNoon.score + 1.2, `zander dusk ${zDusk.score} vs noon ${zNoon.score}`);
   assert.ok(zDusk.score > zLate.score, `after-dusk ${zDusk.score} should beat deep night ${zLate.score}`);
   assert.ok(zDusk.parts.find((p) => p.key === 'light').note.includes('after dusk'));
-});
-
-test('a heavy flush: perch neutral in coloured water, zander rewarded', () => {
-  const wx = synth('2026-10-01T00:00:00Z', 4, (i) => ({
-    temp: 12,
-    cloud: 90,
-    precip: i >= 72 && i < 84 ? 5 : 0,
-    pressure: 1010,
-    wind: 10,
-  }));
-  const perch = scoreHours(wx, ctxFor('perch'));
-  const zander = scoreHours(wx, ctxFor('zander'));
-  const idx = 72 + 12;
-  const pc = perch[idx].parts.find((p) => p.key === 'colour');
-  const zc = zander[idx].parts.find((p) => p.key === 'colour');
-  assert.ok(Math.abs(pc.value) < 0.05, `perch should be neutral in coloured water, got ${pc.value}`);
-  assert.ok(zc.value > 0.2, `zander colour ${zc.value}`);
-  assert.ok(perch[idx].colour > 12, `colour ${perch[idx].colour}`);
 });
 
 test('cold snap (3-day means) and frost are penalised; ice flag raised', () => {
@@ -259,24 +241,6 @@ test('NaN weather values (model gaps) do not poison the score', () => {
   for (const h of hours) assert.ok(Number.isFinite(h.score), `score NaN at ${h.time}`);
 });
 
-test('perch colour response is an inverted U, peaking in tinged water', () => {
-  const band = (v) => PROFILES.perch.colour.find(([lo, hi]) => v >= lo && v < hi)[2];
-  const ginClear = band(2);
-  const tinged = band(8);
-  const coloured = band(18);
-  const chocolate = band(40);
-  assert.ok(tinged > ginClear, 'tinged must beat gin-clear: perch are warier in clear water');
-  assert.ok(tinged > coloured, 'tinged must beat coloured: reaction distance is already falling');
-  assert.ok(coloured > chocolate, 'chocolate is the worst: perch cannot see the lure');
-  assert.ok(ginClear < 0, 'gin-clear water should carry a small penalty, not a reward');
-});
-
-test('zander still prefer the coloured end, and diverge from perch there', () => {
-  const bandFor = (sp, v) => PROFILES[sp].colour.find(([lo, hi]) => v >= lo && v < hi)[2];
-  assert.ok(bandFor('zander', 18) > bandFor('perch', 18), 'zander beat perch in coloured water');
-  assert.ok(bandFor('zander', 18) > bandFor('zander', 2), 'zander prefer colour to gin-clear');
-});
-
 test('lure guidance tracks the clarity bands', () => {
   assert.equal(lureAdvice({ colourIndex: 3 }).clarity, 'clear');
   assert.equal(lureAdvice({ colourIndex: 9 }).clarity, 'tinged');
@@ -334,4 +298,41 @@ test('every hour starts from the flat base', () => {
     assert.equal(base.value, WEIGHTS.base);
   }
   assert.equal(hs.filter((h) => h.parts.some((p) => p.key === 'season')).length, 0, 'no season part remains');
+});
+
+test('water clarity no longer reaches the score by any path', () => {
+  // Identical weather, two very different canals: one flushed by 60 mm of rain,
+  // one bone dry. Only the rainfall differs, and rain's own term is tiny, so the
+  // midday scores must not diverge the way the colour term used to make them.
+  const make = (mm) =>
+    scoreHours(
+      synth('2026-09-10T00:00:00Z', 6, (i) => ({
+        temp: 15,
+        cloud: 80,
+        precip: i >= 24 && i < 48 ? mm : 0,
+        pressure: 1015,
+        wind: 8,
+      })),
+      ctxFor('perch'),
+    );
+  const noon = (hs) => hs.filter((h) => h.hour === 12).at(-1);
+  const wet = noon(make(2.5));
+  const dry = noon(make(0));
+  assert.equal(wet.parts.find((p) => p.key === 'colour'), undefined, 'no colour component');
+  assert.equal(dry.parts.find((p) => p.key === 'colour'), undefined, 'no colour component');
+  assert.ok(Math.abs(wet.score - dry.score) < 0.35, `clarity still moves the score: ${wet.score} vs ${dry.score}`);
+  // The index itself survives, because the lure guidance and the facts panel use it.
+  assert.ok(wet.colour > dry.colour, 'the clarity estimate is still computed');
+});
+
+test('good conditions can reach 5 and bad ones reach 0', () => {
+  // A dark, freezing, gale-blown January midnight must bottom out.
+  const grim = scoreHours(
+    synth('2027-01-10T00:00:00Z', 8, () => ({ temp: -3, cloud: 20, precip: 0, pressure: 1032, wind: 40 })),
+    ctxFor('perch'),
+  );
+  assert.ok(Math.min(...grim.map((h) => h.score)) <= 0.5, `grim floor ${Math.min(...grim.map((h) => h.score))}`);
+  // The scale must still be reachable at the top: no soft cap compresses it now.
+  assert.equal(clampScore(2.5 + WEIGHTS.gain * 2.4), 5);
+  assert.ok(WEIGHTS.gain > 1, 'conditions carry more than face value');
 });

@@ -776,3 +776,21 @@ dialog h3 {
   text-transform: uppercase;
   color: var(--muted);
 }
+
+.update-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 50;
+  max-width: calc(100% - 24px);
+  padding: 10px 16px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.3);
+  cursor: pointer;
+}
