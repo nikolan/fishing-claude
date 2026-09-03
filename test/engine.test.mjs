@@ -18,6 +18,7 @@ import {
   BOAT_COLOUR_INPUT,
   RUNOFF_COLOUR_COEFF,
   PROFILES,
+  lightRange,
   lureAdvice,
   lurePicks,
 } from '../public/src/engine.js';
@@ -451,4 +452,52 @@ test('run-up does not reward the post-frontal morning by the back door', () => {
   const late = hours[hours.length - 30];
   const pressure = late.parts.find((p) => p.key === 'pressure');
   assert.equal(pressure.value, 0, 'a rising, clearing, colder morning must take no pressure marks');
+});
+
+test('every light state a species can produce is inside its normalised range', () => {
+  // Leaving one out silently clamps it. Zander's after-dusk window sat above a
+  // ceiling built from twilight and daytime alone, so their defining feeding
+  // period scored the same as twilight.
+  for (const sp of ['perch', 'pike', 'zander']) {
+    const p = PROFILES[sp];
+    const [lo, hi] = lightRange(p);
+    for (const [name, v] of Object.entries({
+      night: p.night,
+      afterDusk: p.afterDusk,
+      twilight: p.twilight,
+      dayDark: p.dayBase,
+      dayBright: p.dayBase - p.daySlope,
+    })) {
+      assert.ok(v >= lo && v <= hi, `${sp} ${name} (${v}) outside range ${lo}..${hi}`);
+    }
+  }
+});
+
+test('zander score their best light after dusk, ahead of twilight', () => {
+  const wx = synth('2026-10-10T00:00:00Z', 6, () => ({ temp: 14, cloud: 70, precip: 0, pressure: 1015, wind: 8 }));
+  const hours = scoreHours(wx, ctxFor('zander'));
+  const at = (frag) => {
+    const hs = hours.filter((h) => (h.parts.find((p) => p.key === 'light').note ?? '').includes(frag));
+    return hs.length ? Math.max(...hs.map((h) => h.parts.find((p) => p.key === 'light').value)) : null;
+  };
+  const afterDusk = at('after dusk');
+  const twilight = at('twilight');
+  assert.ok(afterDusk !== null && twilight !== null, 'expected both states in the series');
+  assert.ok(afterDusk > twilight, `after dusk ${afterDusk} should beat twilight ${twilight} for zander`);
+});
+
+test('water-temperature bands keep their plateaus but lose their cliffs', () => {
+  const f = (t) =>
+    scoreHours(
+      synth('2026-10-10T00:00:00Z', 8, () => ({ temp: t, cloud: 70, precip: 0, pressure: 1015, wind: 8 })),
+      ctxFor('perch'),
+    ).at(-1).parts.find((p) => p.key === 'water').value;
+  // 8-18 C is one band for perch, and the table's claim that it is uniformly
+  // good must survive the smoothing.
+  assert.equal(f(11), f(15), 'the plateau must stay flat');
+  assert.equal(f(11), 1.2, 'and must still reach full marks');
+  // The join either side of 18 C must be gradual, not a cliff.
+  const step = Math.abs(f(18.6) - f(17.4));
+  assert.ok(step > 0, 'the boundary must still change the score');
+  assert.ok(step < 0.4, `the boundary should be blended, got a step of ${step}`);
 });

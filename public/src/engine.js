@@ -63,7 +63,6 @@ export const PROFILES = {
     rain: { light: 0.3, moderate: 0.1, heavy: -0.2 },
     boats: { busy: -0.3, normal: -0.15, shoulder: -0.05 },
     windFresh: -0.15,
-    coldSnap: 1.0,
     fishableNight: false,
   },
   pike: {
@@ -76,7 +75,6 @@ export const PROFILES = {
     rain: { light: 0.2, moderate: 0.1, heavy: -0.2 },
     boats: { busy: -0.2, normal: -0.1, shoulder: -0.05 },
     windFresh: 0.1, // pike CPUE rose with wind (Kuparinen 2010)
-    coldSnap: 1.0,
     fishableNight: false,
   },
   zander: {
@@ -89,7 +87,6 @@ export const PROFILES = {
     rain: { light: 0.2, moderate: 0.2, heavy: 0.1 },
     boats: { busy: -0.15, normal: -0.05, shoulder: 0 },
     windFresh: 0,
-    coldSnap: 0.5,
     fishableNight: true,
   },
 };
@@ -136,9 +133,17 @@ export function toBudget(value, lo, hi, max) {
   return Math.min(max, Math.max(0, ((value - lo) / (hi - lo)) * max));
 }
 
-/** The light term's own floor and ceiling for a species, used to normalise it. */
+/**
+ * The light term's own floor and ceiling for a species, used to normalise it.
+ *
+ * Every state the term can produce must be inside this range. Leaving one out
+ * silently clamps it: zander's after-dusk value of 0.9 sits above a ceiling
+ * built from twilight and daytime alone, so their primary feeding window was
+ * scoring identically to twilight and the species lost its defining feature.
+ */
 export function lightRange(prof) {
-  return [Math.min(prof.night, prof.afterDusk, prof.dayBase - prof.daySlope), Math.max(prof.twilight, prof.dayBase)];
+  const states = [prof.night, prof.afterDusk, prof.twilight, prof.dayBase, prof.dayBase - prof.daySlope];
+  return [Math.min(...states), Math.max(...states)];
 }
 
 /** The water-temperature band's floor and ceiling for a species. */
@@ -286,9 +291,36 @@ export const BOAT_COLOUR_INPUT = { busy: 0.6, normal: 0.3, shoulder: 0.1, none: 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const round1 = (v) => Math.round(v * 10) / 10;
 const round2 = (v) => Math.round(v * 100) / 100;
-const band = (bands, v) => {
+/**
+ * Value from a table of [lo, hi, points] bands, with the boundaries softened.
+ *
+ * Each band is a plateau: the table says 8-18 C is all equally good for perch,
+ * and that claim is kept intact. Only the joins are smoothed, over BAND_BLEND_C
+ * either side of a boundary.
+ *
+ * The reason is that a tenth of a degree across 18 C used to move the water
+ * factor by a third of its range, which is an artefact of where the bin edge was
+ * drawn rather than a fact about fish. Blending across a degree removes the
+ * cliff without inventing a curve the evidence does not support.
+ */
+export const BAND_BLEND_C = 1.0;
+
+const bandStep = (bands, v) => {
   for (const [lo, hi, pts] of bands) if (v >= lo && v < hi) return pts;
-  return 0;
+  return v < bands[0][0] ? bands[0][2] : bands[bands.length - 1][2];
+};
+
+const band = (bands, v) => {
+  if (!bands.length || !Number.isFinite(v)) return 0;
+  const half = BAND_BLEND_C / 2;
+  for (let i = 1; i < bands.length; i++) {
+    const edge = bands[i][0];
+    if (v > edge - half && v < edge + half) {
+      const t = (v - (edge - half)) / BAND_BLEND_C;
+      return bands[i - 1][2] + (bands[i][2] - bands[i - 1][2]) * t;
+    }
+  }
+  return bandStep(bands, v);
 };
 
 /** Crepuscular peaks are strongest Oct–Apr and flatten in midsummer (Craig 1977; Jacobsen 2002). */

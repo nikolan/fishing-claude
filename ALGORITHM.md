@@ -432,3 +432,46 @@ By the plain reading, that post-frontal morning is "bad then good" and would
 score well. It should not. That effect stays in the pressure factor, where
 falling takes full marks and a rising, clearing, colder morning takes none, and
 the run-up does not touch it. A test pins exactly this case.
+
+
+## Review fixes
+
+A pass over the scoring code found three defects and one thing worth leaving
+alone.
+
+**Zander's after-dusk window was clamping.** The light term is normalised
+against the range a species' own light constants can produce, and that range was
+built from twilight and daytime only. Zander's after-dusk value of 0.9 sits above
+a ceiling of 0.7, so it clamped, and their primary feeding window scored
+identically to twilight. Horský 2008 has zander peaking in the hours after dusk,
+which is the main reason the species needs its own model at all. The range now
+spans every state the term can produce, and after-dusk takes full marks where
+twilight takes 1.22 of 1.5.
+
+**Four days of the History view ran on a placeholder.** The run-up factor needs
+the four days before an hour, and only 14 days of weather were fetched for a
+14-day history, so the earliest four days fell back to a flat half-marks
+placeholder. The History view is the calibration view, so a quarter of it was
+fabricated. Five extra lead-in days are now requested.
+
+**Water-temperature bands were cliffs.** A tenth of a degree either side of 18 C
+moved the water factor by a third of its range, an artefact of where the bin edge
+was drawn. Boundaries are now blended over one degree. The plateaus are kept
+intact: the table still says 8-18 C is uniformly good for perch, because that is
+what the evidence says. Largest hour-to-hour jump falls from 0.37 to 0.06.
+
+**`coldSnap` was dead** and is removed. It belonged to the trend term that the
+run-up factor replaced.
+
+### Left alone: the species now score alike
+
+Perch, pike and zander run within about 0.3 of each other through September. The
+cause is known and it is not a bug: the seasonal curves were the main thing
+separating species at a given time of year, and pike sat more than a point below
+perch in September purely from the calendar. Removing the seasonal base removed
+that separation.
+
+The fix would be to restore the curves centred on zero, so each species keeps its
+own shape through the year as a plus or minus without reintroducing the constant
+level that was deliberately removed. That reverses an explicit instruction, so it
+is not done here.

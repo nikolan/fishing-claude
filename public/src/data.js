@@ -20,7 +20,12 @@ export const HOURLY_VARS = [
 ];
 export const DAILY_VARS = ['sunrise', 'sunset'];
 
-export const PAST_DAYS = 14;
+// Fourteen days are displayed in the History view, but the run-up factor reads
+// the four days before each hour. Request extra lead-in so the earliest day on
+// screen is scored from real weather rather than a placeholder.
+export const HISTORY_DAYS = 14;
+export const RUNUP_LEAD_DAYS = 5;
+export const PAST_DAYS = HISTORY_DAYS + RUNUP_LEAD_DAYS;
 export const FORECAST_DAYS = 8;
 
 export function buildForecastUrl({ lat, lng, tz = 'Europe/London', model }) {
