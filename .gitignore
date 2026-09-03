@@ -3,3 +3,11 @@ node_modules/
 dist/
 build/
 .cache/
+
+# Local AI-agent state (never publish)
+.claude/
+
+# Safety net: the fishing log is personal and lives at ~/fishing-log, outside
+# this tree. This only catches a copy accidentally dropped in here.
+fishing-log/
+outings/
