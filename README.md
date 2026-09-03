@@ -1,6 +1,6 @@
 # Fishing Claude
 
-Hour-by-hour feeding forecast for **perch, pike and zander** on Midlands canals, scored from free, key-less data and installable on your phone. Static files only — no build, no backend, no accounts.
+Hour-by-hour feeding forecast for **perch** on Midlands canals, scored from free, key-less data and installable on your phone. Static files only — no build, no backend, no accounts.
 
 - Scoring spec and evidence: [`ALGORITHM.md`](./ALGORITHM.md)
 - Engine: [`public/src/engine.js`](./public/src/engine.js) (pure functions; all weights are constants at the top)
@@ -29,7 +29,7 @@ Open `http://127.0.0.1:4390/?mock=1` for a deterministic synthetic fortnight whe
 
 **History** — the last 14 days scored from recorded weather, with a daily bar chart, a "Good" threshold line and period stats. This is the calibration view: compare it against your own catch log. If your good sessions cluster above 3.4 the weights are working; if they don't, tune them (below).
 
-**Species** — perch / pike / zander switch the whole model, not just a label: different thermal bands, diel windows and reaction to coloured water. Pike carry PAC welfare warnings (≥18 °C, and the 16 Jun – 1 Oct summer break); zander carry a Schedule 9 permit reminder.
+**Species** — perch only. Pike and zander were removed rather than carried untuned: they scored within 0.3 of perch, so the selector gave three labels for one answer. Get perch right, then expand. Their constants are in git history.
 
 **Location** — tap the chip. Swims are grouped by the permit that covers them. *LACC waters* are the Lure Anglers Canal Club stretches: the Grand Union at Knowle, Rowington, Hatton, Leamington, Radford Semele, Stockton and Calcutt, and the South Stratford at Lowsonford, Preston Bagot and Wootton Wawen. *LAA waters* are open to LACC members. The rest of the Midlands presets sit on other books. Boundary and parking limits that are easy to get wrong appear under the swim name, but the club page is the authority and the boundaries move. You can also use your GPS position or type a lat/lng. Weather grids are 2–10 km so precision doesn't matter much.
 

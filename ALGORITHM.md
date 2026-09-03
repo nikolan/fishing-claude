@@ -475,3 +475,58 @@ The fix would be to restore the curves centred on zero, so each species keeps it
 own shape through the year as a plus or minus without reintroducing the constant
 level that was deliberately removed. That reverses an explicit instruction, so it
 is not done here.
+
+
+## Perch only, and a season factor that earns its place
+
+The model now covers perch alone. Pike and zander are removed from the engine
+and the interface.
+
+The reason is that three species were being carried without any of them being
+right. They scored within about 0.3 of each other, so the selector produced three
+labels for one answer, and every change had to be reasoned across three sets of
+constants on the strength of evidence gathered for none of them. Getting one
+species right first is the cheaper path to getting three right later. Their
+thermal bands, light profiles and the pike welfare rules are in git history.
+
+With the species constraint gone, the budget was rebalanced and a season factor
+added:
+
+| Factor | Was | Now |
+| --- | --- | --- |
+| Light & time of day | 1.5 | 1.4 |
+| Water temperature | 1.2 | 1.0 |
+| Season | — | 0.7 |
+| Run-up (3-5 days) | 0.8 | 0.7 |
+| Wind & surface | 0.5 | 0.45 |
+| Rain | 0.3 | 0.25 |
+| Pressure trend | 0.3 | 0.25 |
+| Boat disturbance | 0.3 | 0.2 |
+| Moon | 0.1 | 0.05 |
+
+### Why a season factor is not the old base returning
+
+The seasonal base that was removed set the level of every score and told the
+angler nothing. It printed as "Base, flat starting point". This is a different
+thing: it is centred, it varies from 0.14 in May to 0.63 in October, and it
+covers a mechanism nothing else reaches.
+
+The test case is October against May. Canal water sits near 12 C in October and
+14 C in May, so the water factor scores both at full marks and cannot separate
+them. On the bank they are the best and the worst of the year. Three things
+explain that, and none of them is temperature:
+
+- **Spawning.** Perch spawn March to May. They feed hard beforehand, are
+  preoccupied during it, and are in poor condition for weeks afterwards.
+- **Prey.** The year's fry are too small to interest a decent perch until late
+  summer. By October they are at their largest and most abundant.
+- **Shoaling.** Perch pack into tight shoals through autumn and hunt
+  co-operatively, which is why a good October swim produces fish after fish.
+
+Water temperature gave up 0.2 of its share because part of what it carried was
+really this annual rhythm, and the two are now separated.
+
+The values are angler consensus for Midlands canals rather than measurements,
+which is why the factor is worth 0.7 of the 5 and not more. The breakdown names
+the reason for the month, so the line reads "October, peak: shoaled and gorging
+on fry" instead of a bare number.

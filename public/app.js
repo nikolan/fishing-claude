@@ -73,7 +73,7 @@ const PRESET_GROUPS = [
 ];
 
 const state = {
-  species: 'perch',
+  species: 'perch', // the model covers perch only; see SPECIES in engine.js
   view: 'forecast',
   loc: null,
   solunar: false,
@@ -91,7 +91,6 @@ const state = {
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
-    if (s.species && PROFILES[s.species]) state.species = s.species;
     if (s.loc && Number.isFinite(s.loc.lat)) state.loc = s.loc;
     if (typeof s.solunar === 'boolean') state.solunar = s.solunar;
   } catch {
@@ -100,7 +99,7 @@ function load() {
 }
 function save() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ species: state.species, loc: state.loc, solunar: state.solunar }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ loc: state.loc, solunar: state.solunar }));
   } catch {
     /* ignore */
   }
@@ -202,7 +201,7 @@ async function loadData() {
 
 function compute() {
   if (!state.wx || !state.loc) return;
-  const ctx = { lat: state.loc.lat, lng: state.loc.lng, tz: TZ, species: state.species, bankHolidays: state.bank, solunar: state.solunar };
+  const ctx = { lat: state.loc.lat, lng: state.loc.lng, tz: TZ, species: 'perch', bankHolidays: state.bank, solunar: state.solunar };
   const { hours, days } = forecast(state.wx, ctx);
   const today = todayKey();
   state.hours = hours;
@@ -218,14 +217,13 @@ function compute() {
 // ---- render ----------------------------------------------------------------
 function render() {
   $('#locBtn').textContent = `📍 ${state.loc?.name ?? 'Set location'}`;
-  document.querySelectorAll('.species [role=tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.species === state.species)));
   document.querySelectorAll('.views [role=tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.view === state.view)));
   $('#forecastView').hidden = state.view !== 'forecast';
   $('#historyView').hidden = state.view !== 'history';
   if (!state.wx) return;
   if (state.view === 'forecast') {
     renderHero();
-    $('#stripHead').textContent = `Next ${state.days.length} days for ${PROFILES[state.species].label.toLowerCase()}`;
+    $('#stripHead').textContent = `Next ${state.days.length} days for ${PROFILES.perch.label.toLowerCase()}`;
     renderDayStrip($('#days'), state.days);
   } else {
     renderHistory();
@@ -239,15 +237,6 @@ function currentHour() {
   return state.hours.find((h) => now >= h.time && now < h.time + 3600) ?? null;
 }
 
-function speciesWarnings(day) {
-  const out = [];
-  if (state.species === 'pike') {
-    if (day.flags.includes('pikeWelfare')) out.push(`⚠ Estimated water ≥ ${WEIGHTS.pikeWelfareTemp}°C — Pike Anglers' Club advise not targeting pike; recovery is poor in warm, low-oxygen water.`);
-    else if (day.flags.includes('pikeSummer')) out.push('ℹ 16 Jun – 1 Oct: PAC advise a summer break from pike fishing.');
-  }
-  if (state.species === 'zander' && day.dateKey === todayKey()) out.push('ℹ Zander are a Schedule 9 non-native species — check your permit; CRT permits typically require they are not returned.');
-  return out;
-}
 
 function renderHero() {
   const hero = $('#hero');
@@ -258,20 +247,21 @@ function renderHero() {
     hero.append(el('div', { class: 'skeleton', text: 'No forecast data for today.' }));
     return;
   }
-  const prof = PROFILES[state.species];
+  const prof = PROFILES.perch;
   const score = now ? now.score : today.score;
   const scoreEl = el('div', { class: 'score', style: scoreStyle(score) }, document.createTextNode(score.toFixed(1)), el('small', { text: now ? 'now' : 'today' }));
   const headline = el('div', {}, el('div', { class: 'headline', text: `${ratingLabel(score)} for ${prof.label.toLowerCase()}` }));
   const bits = [];
   if (today.bestWindow) bits.push(`Best window ${fmtTime(today.bestWindow.start)}–${fmtTime(today.bestWindow.end)} (${today.bestWindow.score.toFixed(1)})`);
   if (now) {
-    // Which factors are earning their share, and which are costing the most?
-    const share = (p) => (p.max ? p.value / p.max : 0);
-    const ranked = [...now.parts].sort((x, y) => share(y) - share(x));
-    const best = ranked[0];
-    const worst = ranked[ranked.length - 1];
-    if (best && worst && best !== worst) {
-      bits.push(`${best.label.toLowerCase()} ${Math.round(share(best) * 100)}% · ${worst.label.toLowerCase()} ${Math.round(share(worst) * 100)}%`);
+    // Name the factor carrying the hour and the one costing it most, in points
+    // rather than percentages. A small factor sitting at 100% is not news; a big
+    // one giving up half its share is.
+    const driver = [...now.parts].sort((x, y) => y.value - x.value)[0];
+    const limiter = [...now.parts].sort((x, y) => y.max - y.value - (x.max - x.value))[0];
+    if (driver) bits.push(`${driver.label.toLowerCase()} ${driver.value.toFixed(2)} of ${driver.max.toFixed(2)}`);
+    if (limiter && limiter !== driver && limiter.max - limiter.value >= 0.05) {
+      bits.push(`${limiter.label.toLowerCase()} short by ${(limiter.max - limiter.value).toFixed(2)}`);
     }
   }
   headline.append(el('div', { class: 'sub', text: bits.join(' — ') }));
@@ -291,7 +281,6 @@ function renderHero() {
   fact('Moon', `${today.moon.name} ${Math.round(today.moon.fraction * 100)}%`);
   if (state.gauge) fact('Gauge 24h/72h', `${state.gauge.rain24}/${state.gauge.rain72} mm`);
   hero.append(facts);
-  for (const w of speciesWarnings(today)) hero.append(el('div', { class: 'warn full', text: w }));
 }
 
 function renderDayStrip(wrap, days) {
@@ -305,7 +294,7 @@ function renderDayStrip(wrap, days) {
           type: 'button',
           role: 'option',
           'aria-selected': String(d.dateKey === state.selectedDay),
-          'aria-label': `${fmtDow(d.dateKey)} ${fmtDate(d.dateKey)}: ${d.score.toFixed(1)} of 5 for ${PROFILES[state.species].label.toLowerCase()}, ${d.label.toLowerCase()}`,
+          'aria-label': `${fmtDow(d.dateKey)} ${fmtDate(d.dateKey)}: ${d.score.toFixed(1)} of 5 for ${PROFILES.perch.label.toLowerCase()}, ${d.label.toLowerCase()}`,
           onclick: () => {
             state.selectedDay = d.dateKey;
             state.selectedHour = null;
@@ -336,7 +325,7 @@ function renderHistory() {
   }
   chart.append(renderDailyBars(days));
   const legend = el('div', { class: 'legend' });
-  legend.append(el('span', { style: '--k: var(--score-3)', text: `Daily score, ${PROFILES[state.species].label.toLowerCase()}` }));
+  legend.append(el('span', { style: '--k: var(--score-3)', text: `Daily score, ${PROFILES.perch.label.toLowerCase()}` }));
   chart.append(legend);
 
   const scores = days.map((d) => d.score);
@@ -367,7 +356,7 @@ function renderDailyBars(days) {
   const slot = plotW / days.length;
   const barW = Math.min(24, slot - 4);
   const y = (v) => padT + plotH - (v / 5) * plotH;
-  const svg = svgEl('svg', { class: 'chart', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Daily ${PROFILES[state.species].label} score, last ${days.length} days` });
+  const svg = svgEl('svg', { class: 'chart', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Daily ${PROFILES.perch.label} score, last ${days.length} days` });
   for (const v of [0, 1, 2, 3, 4, 5]) {
     svg.append(svgEl('line', { class: v === 0 ? 'axis' : 'grid', x1: padL, x2: W - padR, y1: y(v), y2: y(v) }));
     const t = svgEl('text', { x: padL - 5, y: y(v) + 3, 'text-anchor': 'end' });
@@ -435,7 +424,7 @@ function renderDetail() {
   }
   sec.hidden = false;
   sec.replaceChildren();
-  const prof = PROFILES[state.species];
+  const prof = PROFILES.perch;
   const isToday = day.dateKey === todayKey();
   sec.append(
     el(
@@ -448,7 +437,6 @@ function renderDetail() {
   if (state.view === 'history') sec.append(el('div', { class: 'note', text: 'Past day — scored from recorded weather.' }));
   if (day.flags.includes('thunder')) sec.append(el('div', { class: 'warn', text: "⚠ Thunderstorms — carbon rods and lightning don't mix. Stay off the bank during storms." }));
   if (day.flags.includes('ice')) sec.append(el('div', { class: 'warn', text: '❄ Ice likely on the canal — expect a frozen surface, at least early on.' }));
-  for (const w of speciesWarnings(day)) sec.append(el('div', { class: 'warn', text: w }));
 
   const sun = getSunTimes(dayNoon(day.dateKey), state.loc.lat, state.loc.lng);
   const facts = el('div', { class: 'facts-grid' });
@@ -485,7 +473,7 @@ function renderDetail() {
 }
 
 function renderLures(day) {
-  const advice = lureAdvice({ colourIndex: day.colour, cloudPct: day.cloudMean, species: state.species });
+  const advice = lureAdvice({ colourIndex: day.colour, cloudPct: day.cloudMean, });
   const wrap = el('details', { class: 'lures' });
   wrap.append(el('summary', { text: `Lure for ${advice.clarity} water` }));
   wrap.append(el('p', { class: 'why', text: advice.why }));
@@ -532,7 +520,7 @@ function renderHourChart(day) {
   const barW = Math.min(24, slot - 3);
   const y = (v) => padT + plotH - (v / 5) * plotH;
 
-  const svg = svgEl('svg', { class: 'chart', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Hourly ${PROFILES[state.species].label} score for ${day.dateKey}` });
+  const svg = svgEl('svg', { class: 'chart', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Hourly ${PROFILES.perch.label} score for ${day.dateKey}` });
 
   for (let i = 0; i < hours.length; i++) {
     const a = hours[i].sunAlt;
@@ -682,22 +670,14 @@ function renderAbout() {
     [24, 99, '> 24'],
   ]) {
     const mid = lo === -99 ? 2 : hi === 99 ? 26 : (lo + hi) / 2;
-    const r = el('tr', {}, el('td', { text: label }));
-    for (const sp of ['perch', 'pike', 'zander']) {
-      const v = WATER_TEMP[sp].find(([a, b]) => mid >= a && mid < b)?.[2] ?? 0;
-      r.append(el('td', { class: 'num', text: signed(v) }));
-    }
-    t2.append(r);
+    const v = WATER_TEMP.perch.find(([a, b]) => mid >= a && mid < b)?.[2] ?? 0;
+    t2.append(el('tr', {}, el('td', { text: label }), el('td', { class: 'num', text: signed(v) })));
   }
   body.append(el('div', { class: 'table-wrap' }, t2));
 
   const t3 = el('table');
-  t3.append(el('tr', {}, el('th', { text: 'Component' }), el('th', { text: 'Perch' }), el('th', { text: 'Pike' }), el('th', { text: 'Zander' })));
-  const row = (label, f) => {
-    const r = el('tr', {}, el('td', { text: label }));
-    for (const sp of ['perch', 'pike', 'zander']) r.append(el('td', { class: 'num', text: f(PROFILES[sp]) }));
-    t3.append(r);
-  };
+  t3.append(el('tr', {}, el('th', { text: 'Component' }), el('th', { text: 'Perch' })));
+  const row = (label, f) => t3.append(el('tr', {}, el('td', { text: label }), el('td', { class: 'num', text: f(PROFILES.perch) })));
   row('Light: dark', (pr) => signed(pr.night));
   row('Light: first 3h after dusk', (pr) => signed(pr.afterDusk));
   row('Light: dawn/dusk (Oct–Apr; ×0.6 midsummer)', (pr) => signed(pr.twilight));
@@ -719,7 +699,6 @@ function renderAbout() {
     ['Thunderstorm', 'no rain marks, and a safety flag'],
     ['Frost', 'no separate term: it is already in the water temperature'],
     ['New/full moon ±3 days', 'full moon marks'],
-    ['Dark night, zander only', 'full moon marks'],
     ['Solunar (opt-in, traditional)', 'shares the moon budget, never adds to it'],
   ];
   for (const [k, v] of shared) t4.append(el('tr', {}, el('td', { text: k }), el('td', { class: 'num', text: v })));
@@ -778,15 +757,6 @@ async function applyLocation(loc) {
 }
 
 function wireUi() {
-  document.querySelectorAll('.species [role=tab]').forEach((b) =>
-    b.addEventListener('click', () => {
-      state.species = b.dataset.species;
-      state.selectedHour = null;
-      save();
-      compute();
-      render();
-    }),
-  );
   document.querySelectorAll('.views [role=tab]').forEach((b) =>
     b.addEventListener('click', () => {
       state.view = b.dataset.view;

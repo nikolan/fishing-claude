@@ -10,7 +10,6 @@ import {
   summariseDays,
   ratingLabel,
   twilightSeasonFactor,
-  pikeSummerBreak,
   WEIGHTS,
   FACTORS,
   FACTOR_TOTAL,
@@ -18,6 +17,9 @@ import {
   BOAT_COLOUR_INPUT,
   RUNOFF_COLOUR_COEFF,
   PROFILES,
+  SPECIES,
+  seasonQuality,
+  SEASON_PERCH,
   lightRange,
   lureAdvice,
   lurePicks,
@@ -121,17 +123,6 @@ test('colour proxy: rainfall dominates boat wash after a real flush', () => {
   assert.ok(c[n - 1] < c[48], 'and it should fall back as the run-off clears');
 });
 
-test('boat traffic classes and pike summer break', () => {
-  assert.equal(boatTraffic({ month: 8, hour: 13, weekday: 2, isBankHoliday: false }), 'busy');
-  assert.equal(boatTraffic({ month: 6, hour: 13, weekday: 2, isBankHoliday: false }), 'normal');
-  assert.equal(boatTraffic({ month: 6, hour: 13, weekday: 6, isBankHoliday: false }), 'busy');
-  assert.equal(boatTraffic({ month: 6, hour: 7, weekday: 6, isBankHoliday: false }), 'none');
-  assert.equal(boatTraffic({ month: 1, hour: 13, weekday: 6, isBankHoliday: false }), 'none');
-  assert.equal(boatTraffic({ month: 9, hour: 13, weekday: 1, isBankHoliday: true }), 'busy');
-  assert.equal(pikeSummerBreak(7, 10), true);
-  assert.equal(pikeSummerBreak(6, 15), false);
-  assert.equal(pikeSummerBreak(10, 1), false);
-});
 
 test("user's example day (30 Aug, showers, overcast, falling pressure, 16°C) is a Good/Excellent perch day", () => {
   // A week of 16°C lead-in so the water proxy settles; pressure falling 4 hPa/day; showers on the day.
@@ -154,7 +145,7 @@ test("user's example day (30 Aug, showers, overcast, falling pressure, 16°C) is
   assert.ok(pr.max <= 0.3, 'pressure must remain a minor factor');
 });
 
-test('bright, calm, post-frontal day is poor for perch at noon; zander peak is the hours after dusk', () => {
+test('a bright, calm, post-frontal day is poor for perch at noon', () => {
   const wx = synth('2026-10-01T00:00:00Z', 8, (i) => ({
     temp: i < 96 ? 16 : 11,
     cloud: 5,
@@ -163,16 +154,12 @@ test('bright, calm, post-frontal day is poor for perch at noon; zander peak is t
     wind: 3,
   }));
   const perchDay = summariseDays(scoreHours(wx, ctxFor('perch')), ctxFor('perch')).find((d) => d.dateKey === '2026-10-07');
-  const zander = scoreHours(wx, ctxFor('zander')).filter((h) => h.dateKey === '2026-10-07');
   const perchNoon = perchDay.hours.find((h) => h.hour === 13);
   assert.ok(perchNoon.score < 3.4, `perch noon ${perchNoon.score} should not rate Good`);
   assert.ok(perchDay.bestWindow && perchDay.score > perchNoon.score + 0.7, 'perch should still get a dawn/dusk window');
-  const zNoon = zander.find((h) => h.hour === 13);
-  const zDusk = zander.find((h) => h.hour === 20); // civil dusk ~19:20 BST in early Oct
-  const zLate = zander.find((h) => h.hour === 2);
-  assert.ok(zDusk.score > zNoon.score + 1.2, `zander dusk ${zDusk.score} vs noon ${zNoon.score}`);
-  assert.ok(zDusk.score > zLate.score, `after-dusk ${zDusk.score} should beat deep night ${zLate.score}`);
-  assert.ok(zDusk.parts.find((p) => p.key === 'light').note.includes('after dusk'));
+  // And the dawn window must still beat that bright, calm midday.
+  const dawn = perchDay.hours.find((h) => h.hour === 7);
+  assert.ok(dawn.score > perchNoon.score, `dawn ${dawn.score} should beat noon ${perchNoon.score}`);
 });
 
 test('a cold snap strips the water and run-up marks, and raises the ice flag', () => {
@@ -193,20 +180,6 @@ test('a cold snap strips the water and run-up marks, and raises the ice flag', (
   assert.equal(ratingLabel(late.score), 'Stay home');
 });
 
-test('pike: welfare and summer-break flags, and warm water costs water marks', () => {
-  const wx = synth('2026-07-10T00:00:00Z', 8, (i) => ({ temp: i < 96 ? 24 : 19, cloud: 60 }));
-  const hours = scoreHours(wx, ctxFor('pike'));
-  const mid = hours[100];
-  assert.ok(mid.flags.includes('pikeWelfare'));
-  assert.ok(mid.flags.includes('pikeSummer'));
-  const water = mid.parts.find((p) => p.key === 'water');
-  assert.ok(water.value <= water.max * 0.25, `too-warm water should score low for pike, got ${water.value}`);
-  // The estimate must follow the air down, even though 19 °C is still above the
-  // pike welfare line, so the water factor stays at its floor throughout.
-  const later = hours[hours.length - 12];
-  assert.ok(later.waterTemp < mid.waterTemp, `water should cool: ${mid.waterTemp} then ${later.waterTemp}`);
-  assert.equal(later.parts.find((p) => p.key === 'water').value, 0, 'still too warm for pike');
-});
 
 test('moon: full marks within ±3 days of syzygy, less at the quarter', () => {
   // Full moon 2026-09-26 16:49 UTC; first quarter 2026-09-18.
@@ -243,7 +216,7 @@ test('scores are bounded 0..5 and every part is a finite number under extreme in
     gust: 60,
     weatherCode: 96,
   }));
-  const hours = scoreHours(wx, ctxFor('pike', { solunar: true }));
+  const hours = scoreHours(wx, ctxFor('perch', { solunar: true }));
   for (const h of hours) {
     assert.ok(h.score >= 0 && h.score <= 5, `score ${h.score}`);
     for (const p of h.parts) assert.ok(Number.isFinite(p.value), `${p.key} not finite`);
@@ -267,11 +240,9 @@ test('lure guidance tracks the clarity bands', () => {
   assert.ok(lureAdvice({ colourIndex: 18 }).colours.some((c) => /chartreuse|firetiger/.test(c)));
 });
 
-test('bright sun on clear water adds a note; zander and pike adjust', () => {
+test('bright sun on clear water adds a note', () => {
   assert.ok(lureAdvice({ colourIndex: 3, cloudPct: 10 }).notes.some((n) => /Bright sun/.test(n)));
   assert.equal(lureAdvice({ colourIndex: 3, cloudPct: 95 }).notes.filter((n) => /Bright sun/.test(n)).length, 0);
-  assert.ok(lureAdvice({ colourIndex: 9, species: 'zander' }).notes.some((n) => /Zander/.test(n)));
-  assert.ok(lureAdvice({ colourIndex: 9, species: 'pike' }).notes.some((n) => /pike/.test(n)));
 });
 
 test('the logged sessions land in the band their lure is filed under', () => {
@@ -284,19 +255,29 @@ test('the logged sessions land in the band their lure is filed under', () => {
   assert.ok(!/Motor Oil/.test(tinged), 'Motor Oil should not be offered for tinged water');
 });
 
-test('the calendar no longer moves the score', () => {
+test('the season factor separates months that water temperature cannot', () => {
+  // October and May sit at much the same canal temperature, so the water factor
+  // scores them alike. On the bank they are the best and the worst of the year.
   const make = (iso) =>
     scoreHours(
-      synth(iso, 8, () => ({ temp: 12, cloud: 70, precip: 0, pressure: 1015, wind: 8 })),
+      synth(iso, 8, () => ({ temp: 13, cloud: 70, precip: 0, pressure: 1015, wind: 8 })),
       ctxFor('perch'),
-    );
-  const april = make('2026-04-10T00:00:00Z');
+    ).at(-1);
+  const may = make('2026-05-10T00:00:00Z');
   const october = make('2026-10-10T00:00:00Z');
-  const noon = (hs) => hs.filter((h) => h.hour === 12).at(-1).score;
-  // Sun geometry still differs between the two dates, so they are not identical.
-  // What must be gone is the seasonal step, which was worth more than a point.
-  assert.ok(Math.abs(noon(april) - noon(october)) < 0.3, `April ${noon(april)} vs October ${noon(october)}`);
-  assert.ok(october.every((h) => !h.parts.some((p) => p.key === 'season')), 'no season factor remains');
+  const part = (h, k) => h.parts.find((p) => p.key === k).value;
+  assert.equal(part(may, 'water'), part(october, 'water'), 'water temperature cannot tell them apart');
+  assert.ok(part(october, 'season') > part(may, 'season') + 0.3, `season must: May ${part(may, 'season')} vs Oct ${part(october, 'season')}`);
+});
+
+test('the season factor is centred, not a base: it varies across the year', () => {
+  const mid = [15, 46, 75, 105, 136, 166, 197, 228, 258, 289, 319, 350];
+  const vals = mid.map((d) => seasonQuality(d));
+  assert.ok(Math.min(...vals) < 0.3, 'the worst month must be genuinely low');
+  assert.ok(Math.max(...vals) > 0.8, 'the best month must be genuinely high');
+  // May the trough, October the peak. That is the whole point of the factor.
+  assert.equal(Math.min(...vals), Math.min(...Object.values(SEASON_PERCH)));
+  assert.equal(vals.indexOf(Math.max(...vals)), 9, 'October should be the peak month');
 });
 
 test('the score is the sum of the factors, with no base and nothing left over', () => {
@@ -416,7 +397,7 @@ test('run-up reads every condition, so any multi-day regime registers', () => {
     const hours = scoreHours(synth('2026-10-01T00:00:00Z', 14, f), ctxFor('perch'));
     const best = [...hours].sort((a, b) => b.score - a.score)[0];
     const ru = best.parts.find((p) => p.key === 'runup');
-    assert.ok(ru.value >= 0.45, `${name} lifting should pay the run-up, got ${ru.value}`);
+    assert.ok(ru.value >= FACTORS.runup.max * 0.6, `${name} lifting should pay the run-up, got ${ru.value}`);
   }
 });
 
@@ -458,7 +439,7 @@ test('every light state a species can produce is inside its normalised range', (
   // Leaving one out silently clamps it. Zander's after-dusk window sat above a
   // ceiling built from twilight and daytime alone, so their defining feeding
   // period scored the same as twilight.
-  for (const sp of ['perch', 'pike', 'zander']) {
+  for (const sp of SPECIES) {
     const p = PROFILES[sp];
     const [lo, hi] = lightRange(p);
     for (const [name, v] of Object.entries({
@@ -473,18 +454,6 @@ test('every light state a species can produce is inside its normalised range', (
   }
 });
 
-test('zander score their best light after dusk, ahead of twilight', () => {
-  const wx = synth('2026-10-10T00:00:00Z', 6, () => ({ temp: 14, cloud: 70, precip: 0, pressure: 1015, wind: 8 }));
-  const hours = scoreHours(wx, ctxFor('zander'));
-  const at = (frag) => {
-    const hs = hours.filter((h) => (h.parts.find((p) => p.key === 'light').note ?? '').includes(frag));
-    return hs.length ? Math.max(...hs.map((h) => h.parts.find((p) => p.key === 'light').value)) : null;
-  };
-  const afterDusk = at('after dusk');
-  const twilight = at('twilight');
-  assert.ok(afterDusk !== null && twilight !== null, 'expected both states in the series');
-  assert.ok(afterDusk > twilight, `after dusk ${afterDusk} should beat twilight ${twilight} for zander`);
-});
 
 test('water-temperature bands keep their plateaus but lose their cliffs', () => {
   const f = (t) =>
@@ -495,7 +464,7 @@ test('water-temperature bands keep their plateaus but lose their cliffs', () => 
   // 8-18 C is one band for perch, and the table's claim that it is uniformly
   // good must survive the smoothing.
   assert.equal(f(11), f(15), 'the plateau must stay flat');
-  assert.equal(f(11), 1.2, 'and must still reach full marks');
+  assert.equal(f(11), FACTORS.water.max, 'and must still reach full marks');
   // The join either side of 18 C must be gradual, not a cliff.
   const step = Math.abs(f(18.6) - f(17.4));
   assert.ok(step > 0, 'the boundary must still change the score');

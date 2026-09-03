@@ -14,9 +14,9 @@
 //    factors (pressure, solunar) are small tie-breakers.
 
 import { sunAltitudeDeg, getSolunarPeriods, solunarAt, getMoonIllumination, moonPhaseName, getSunTimes } from './astro.js';
-import { localParts, midnightForDateKey } from './timezone.js';
+import { localParts, midnightForDateKey, dayOfYear } from './timezone.js';
 
-export const SPECIES = ['perch', 'pike', 'zander'];
+export const SPECIES = ['perch'];
 
 // Mid-month seasonal base (Jan..Dec), interpolated by day of year. Shape from
 // the angler-consensus month tables (ALGORITHM.md §7) scaled so modifiers have
@@ -35,20 +35,6 @@ export const WATER_TEMP = {
     [18, 23, 0.1],
     [23, 99, -0.3],
   ],
-  pike: [
-    [-99, 4, -0.3],
-    [4, 6, -0.1],
-    [6, 9, 0.2],
-    [9, 18, 0.5],
-    [18, 20, -0.6],
-    [20, 99, -1.2],
-  ],
-  zander: [
-    [-99, 4, -0.2],
-    [4, 10, 0.2],
-    [10, 27, 0.4],
-    [27, 99, -0.3],
-  ],
 };
 
 // Per-species constants for light, rain, colour and boat components.
@@ -65,37 +51,12 @@ export const PROFILES = {
     windFresh: -0.15,
     fishableNight: false,
   },
-  pike: {
-    label: 'Pike',
-    night: -0.2,
-    twilight: 0.5,
-    afterDusk: -0.1,
-    dayBase: 0.5,
-    daySlope: 0.8,
-    rain: { light: 0.2, moderate: 0.1, heavy: -0.2 },
-    boats: { busy: -0.2, normal: -0.1, shoulder: -0.05 },
-    windFresh: 0.1, // pike CPUE rose with wind (Kuparinen 2010)
-    fishableNight: false,
-  },
-  zander: {
-    label: 'Zander',
-    night: 0.4, // deep night: fish present but mostly resting (Horký 2008)
-    twilight: 0.7,
-    afterDusk: 0.9, // dusk → ~3h after: the primary window
-    dayBase: 0.2,
-    daySlope: 1.5,
-    rain: { light: 0.2, moderate: 0.2, heavy: 0.1 },
-    boats: { busy: -0.15, normal: -0.05, shoulder: 0 },
-    windFresh: 0,
-    fishableNight: true,
-  },
 };
 
 export const WEIGHTS = {
   // Tie-breakers only: controlled studies find no direct pressure effect.
   pressure: { falling: 0.2, risingClearingCold: -0.3 },
   wind: { flatBright: -0.1, ripple: 0.15, strong: -0.5, gale: -0.8, gusty: -0.3 },
-  pikeWelfareTemp: 18,
 };
 
 // ---------------------------------------------------------------------------
@@ -114,14 +75,15 @@ export const WEIGHTS = {
 // how well that is evidenced. Light and water temperature are the two that
 // decide most days, so they hold more than half the budget between them.
 export const FACTORS = {
-  light: { max: 1.5, label: 'Light & time of day' },
-  water: { max: 1.2, label: 'Water temperature' },
-  runup: { max: 0.8, label: 'Run-up (3-5 days)' },
-  wind: { max: 0.5, label: 'Wind & surface' },
-  rain: { max: 0.3, label: 'Rain' },
-  pressure: { max: 0.3, label: 'Pressure trend' },
-  boats: { max: 0.3, label: 'Boat disturbance' },
-  moon: { max: 0.1, label: 'Moon' },
+  light: { max: 1.4, label: 'Light & time of day' },
+  water: { max: 1.0, label: 'Water temperature' },
+  season: { max: 0.7, label: 'Season' },
+  runup: { max: 0.7, label: 'Run-up (3-5 days)' },
+  wind: { max: 0.45, label: 'Wind & surface' },
+  rain: { max: 0.25, label: 'Rain' },
+  pressure: { max: 0.25, label: 'Pressure trend' },
+  boats: { max: 0.2, label: 'Boat disturbance' },
+  moon: { max: 0.05, label: 'Moon' },
 };
 
 /** Total points available. Must be 5 for the 0-5 scale to mean anything. */
@@ -137,9 +99,9 @@ export function toBudget(value, lo, hi, max) {
  * The light term's own floor and ceiling for a species, used to normalise it.
  *
  * Every state the term can produce must be inside this range. Leaving one out
- * silently clamps it: zander's after-dusk value of 0.9 sits above a ceiling
- * built from twilight and daytime alone, so their primary feeding window was
- * scoring identically to twilight and the species lost its defining feature.
+ * silently clamps it. This caught a real bug when the model still carried three
+ * species: zander's after-dusk value sat above a ceiling built from twilight and
+ * daytime alone, so their primary feeding window scored the same as twilight.
  */
 export function lightRange(prof) {
   const states = [prof.night, prof.afterDusk, prof.twilight, prof.dayBase, prof.dayBase - prof.daySlope];
@@ -256,6 +218,79 @@ export function runUpScore(quality, i) {
   else if (sustained > 0.03) note = `settled and running well (${Math.round(regime * 100)}%)`;
   else note = `settled (${Math.round(regime * 100)}% over the last few days)`;
   return { pts, note };
+}
+
+// ---------------------------------------------------------------------------
+// Season: the part of the year that water temperature cannot see.
+//
+// An earlier version of this model carried a seasonal base and it was removed,
+// correctly: it was a large constant that set the level of every score and told
+// the angler nothing. This is a different thing. It is centred, it varies, and
+// it covers a mechanism no other factor reaches.
+//
+// The test is October against May. Canal water sits around 12 C in October and
+// 14 C in May, so the water factor scores both at full marks and cannot tell
+// them apart. On the bank they are not remotely alike. October is the peak of
+// canal perch fishing and May is close to its worst.
+//
+// Three things drive that, and none of them is temperature:
+//
+//   Spawning. Perch spawn March to May. They feed hard beforehand, are
+//   preoccupied during, and are in poor condition for weeks afterwards.
+//
+//   Prey. The year's fry hatch in spring and are too small to interest a decent
+//   perch until late summer. By October they are at their largest and most
+//   abundant, and perch are gorging on them.
+//
+//   Shoaling. Perch pack into tight shoals through autumn and hunt
+//   co-operatively, which is why a good October swim produces fish after fish.
+//
+// Values are angler consensus for Midlands canals, not measurements, which is
+// why the factor is worth 0.7 of the 5 and not more. Zero is the worst month, 1
+// the best, interpolated between month midpoints.
+export const SEASON_PERCH = {
+  1: 0.45, // cold and slow, but the month for a big single fish
+  2: 0.55, // pre-spawn feeding begins as light returns
+  3: 0.6, // pre-spawn peak, then spawning starts
+  4: 0.25, // spawning
+  5: 0.2, // spent, recovering, the worst of the year
+  6: 0.35, // condition returning
+  7: 0.45, // fry still too small to be worth chasing
+  8: 0.55, // fry growing into a worthwhile meal
+  9: 0.7, // shoals forming
+  10: 0.9, // the peak: shoaled, gorging on fry at their biggest
+  11: 0.85, // still excellent, fish at their heaviest
+  12: 0.6, // cooling off but the shoals are still findable
+};
+
+const MONTH_MID_DOY = [15, 46, 75, 105, 136, 166, 197, 228, 258, 289, 319, 350];
+
+/** Seasonal quality on a day of year, 0 to 1, interpolated between month midpoints. */
+export function seasonQuality(doy) {
+  const v = (i) => SEASON_PERCH[((i % 12) + 12) % 12 + 1];
+  let i = MONTH_MID_DOY.findIndex((m) => m > doy);
+  if (i === -1) i = 0;
+  const j = (i + 11) % 12;
+  let a = MONTH_MID_DOY[j];
+  let b = MONTH_MID_DOY[i];
+  let x = doy;
+  if (i === 0) {
+    b += 365;
+    if (x < a) x += 365;
+  }
+  const t = (x - a) / (b - a);
+  return v(j) + (v(i) - v(j)) * t;
+}
+
+/** A short reason for the month's seasonal mark, so the breakdown says something. */
+export function seasonNote(month) {
+  if (month === 3) return 'pre-spawn, feeding hard';
+  if (month === 4 || month === 5) return 'spawning and recovery, the low point';
+  if (month === 6 || month === 7) return 'condition returning, fry still small';
+  if (month === 8) return 'fry growing into a meal';
+  if (month === 9) return 'shoals forming';
+  if (month === 10 || month === 11) return 'peak: shoaled and gorging on fry';
+  return 'cold water, fewer but bigger fish';
 }
 
 // Water-temperature proxy: exponential moving average of air temperature with
@@ -426,10 +461,6 @@ export function boatTraffic({ month, hour, weekday, isBankHoliday }) {
   return 'none';
 }
 
-/** PAC guidance: refrain from targeting pike 16 Jun – 1 Oct and whenever water ≥ 18 °C. */
-export function pikeSummerBreak(month, day) {
-  return (month === 6 && day >= 16) || month === 7 || month === 8 || (month === 9 && day <= 30);
-}
 
 /**
  * Score every hour for one species.
@@ -529,8 +560,11 @@ export function scoreHours(wx, ctx) {
     const tw = water[i];
     const [waterLo, waterHi] = waterRange(species);
     add('water', toBudget(band(WATER_TEMP[species], tw), waterLo, waterHi, FACTORS.water.max), `~${tw.toFixed(1)}°C (est.)`);
-    if (species === 'pike' && tw >= WEIGHTS.pikeWelfareTemp) flags.push('pikeWelfare');
-    if (species === 'pike' && pikeSummerBreak(lp.month, lp.day)) flags.push('pikeSummer');
+
+    // 2b. Season: spawning state and prey availability, which the water
+    //     temperature cannot express. See the note on SEASON_PERCH.
+    const doy = dayOfYear(lp.year, lp.month, lp.day);
+    add('season', seasonQuality(doy) * FACTORS.season.max, `${date.toLocaleString('en-GB', { month: 'long', timeZone: tz })} — ${seasonNote(lp.month)}`);
 
     // 3. Run-up is added in a second pass: it reads every other factor, so it
     //    cannot be computed until they all exist. See below the loop.
@@ -624,10 +658,6 @@ export function scoreHours(wx, ctx) {
     if (daysFromSyzygy <= 3) {
       moonPts = moonMax;
       moonNote = `${distFull < distNew ? 'full' : 'new'} moon ±3 days`;
-    }
-    if (species === 'zander' && alt < -6 && (di.moon.fraction < 0.25 || cloud >= 80)) {
-      moonPts = moonMax;
-      moonNote = di.moon.fraction < 0.25 ? 'little moonlight' : 'overcast night';
     }
 
     // 9. Solunar periods — opt-in, traditional; no predictive value in controlled tests.
@@ -834,7 +864,7 @@ export function lureBand(colourIndex) {
  * band: bright sun over clear water is the hardest combination and pushes the
  * advice smaller and more natural, while heavy cloud relaxes it.
  */
-export function lureAdvice({ colourIndex, cloudPct = 50, species = 'perch' }) {
+export function lureAdvice({ colourIndex, cloudPct = 50 }) {
   const band = lureBand(colourIndex);
   const notes = [];
   if (band.clarity === 'clear' && cloudPct < 40) {
@@ -842,12 +872,6 @@ export function lureAdvice({ colourIndex, cloudPct = 50, species = 'perch' }) {
   }
   if (band.clarity !== 'clear' && cloudPct > 80) {
     notes.push('Heavy cloud holds the light down all day, so the good window is wider than the usual dawn and dusk.');
-  }
-  if (species === 'zander') {
-    notes.push('Zander gain as light drops. Favour UV and a taller profile, and fish the last of the light and after dark.');
-  }
-  if (species === 'pike') {
-    notes.push('Scale up for pike. The colour rules still hold, the size does not.');
   }
   return { ...band, notes };
 }
