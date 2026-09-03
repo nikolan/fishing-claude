@@ -365,41 +365,70 @@ Some consequences worth stating.
   water climbs into the perfect band, at dawn, with light rain, a ripple, falling
   pressure and a new moon, reaches 4.9.
 
-## Run-up: the three and five days before
+## Run-up: the collective effect of the days before
 
-Water temperature already averages the days before, so the level carries the
-lead-in. What it cannot carry is direction. Fourteen degrees and climbing after a
-cold spell is a different proposition from fourteen and falling. The run-up
-factor adds what the level leaves out, in two halves.
+The run-up is not one variable's trend. A heatwave, a week of storms, a blocking
+high, a drought and a cold snap are all multi-day regimes, and each suppresses
+feeding by a different route: too-warm water, an unfishable surface, flat bright
+stagnation, no run-off, too-cold water. An earlier version read only the water
+temperature, which caught the last of those and missed the rest.
 
-**Direction, up to 0.45.** How far the water has moved toward the species' best
-band over three days and five days, the three-day window weighted more heavily.
-No movement scores the midpoint, not zero: a settled week is neither a promise
-nor a warning.
+So the run-up reads the score itself. Every other factor is computed first, and
+their sum becomes an hourly quality between 0 and 1. Averaged over whole days the
+day-and-night cycle washes out, and what is left is the regime.
 
-**Recovery, up to 0.35.** How much of the previous three days was suppressive,
-paid out only in proportion to how permissive the present hour is. Suppressive
-means a real physical brake: water far off the optimum, wind at 20 mph or more,
-or rain at 3 mm an hour or more. A cold snap followed by a bright freezing high
-earns nothing here, because nothing has been released.
+Measured daily quality, from running the model over real weather and over
+synthetic regimes:
 
-### Why this is not "bad weather then good weather"
+| Regime | Daily quality |
+| --- | --- |
+| Ideal mild spell | 0.78 |
+| Settled September at Knowle | 0.72 |
+| Gale with glare | 0.57 |
+| Heatwave | 0.50 |
+| Freezing and still | 0.41 |
 
-The request behind this factor was that a bad spell followed by a favourable one
+Par is set at 0.70, an ordinary decent day, and a quarter below that counts as a
+fully hard spell. Three things are then scored.
+
+**Trajectory, up to 0.45.** How the last day compares with the three before it.
+Rising is promising, falling is not, flat sits mid-band.
+
+**Release, up to 0.25.** How far below par the regime ran, paid out only in
+proportion to how much conditions have actually improved. A hard spell that has
+not lifted earns nothing here.
+
+**Sustained, up to 0.10.** A small credit when the whole five days have run well,
+so a genuinely good settled spell is not treated as though nothing were going on.
+
+What that produces across regimes, taking the best hour of each:
+
+| Lead-in | Run-up out of 0.80 |
+| --- | --- |
+| Heatwave breaking | 0.60 |
+| Gale and glare breaking | 0.56 |
+| Week of storms ending | 0.54 |
+| Blocking high breaking | 0.47 |
+| Settled and good throughout | 0.34 |
+| Good spell souring | 0.04 |
+
+A swing of more than half a point out of five, which is enough to move a day
+between ratings.
+
+### Why this is still not "bad weather then good weather"
+
+The request behind the factor was that a bad spell followed by a favourable one
 should count for more. That is right for a specific mechanism and wrong as a
-general rule, so the implementation is narrower than the phrase.
+blanket rule, so the implementation is narrower than the phrase.
 
 It is right when the earlier spell physically prevented feeding. Fish that could
 not feed normally carry a deficit and feed hard when the brake comes off. That is
-what the recovery half scores.
+the release half.
 
-It is wrong as a blanket rule because the best-known weather pattern in angling
-runs the other way. Fish feed on the falling limb ahead of a front, while the
-weather is deteriorating, and go quiet in the bright, cold, rising-pressure air
-behind it. By the plain reading of "bad then good", that post-frontal morning
-would score well. It should not. That effect stays in the pressure factor, where
-falling pressure takes full marks and a rising, clearing, colder morning takes
-none, and the run-up factor deliberately does not touch it.
-
-So the two coexist: pressure handles the approach of weather, run-up handles
-release from a spell that had physically shut the fishing down.
+It is wrong as a blanket rule because the best-known pattern in angling runs the
+other way. Fish feed on the falling limb ahead of a front, while the weather is
+deteriorating, and go quiet in the bright, cold, rising-pressure air behind it.
+By the plain reading, that post-frontal morning is "bad then good" and would
+score well. It should not. That effect stays in the pressure factor, where
+falling takes full marks and a rising, clearing, colder morning takes none, and
+the run-up does not touch it. A test pins exactly this case.

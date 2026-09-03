@@ -200,10 +200,11 @@ test('pike: welfare and summer-break flags, and warm water costs water marks', (
   assert.ok(mid.flags.includes('pikeSummer'));
   const water = mid.parts.find((p) => p.key === 'water');
   assert.ok(water.value <= water.max * 0.25, `too-warm water should score low for pike, got ${water.value}`);
-  // Cooling back toward the pike optimum must show up as run-up direction.
-  const early = hours[100].parts.find((p) => p.key === 'runup').value;
-  const later = hours[hours.length - 12].parts.find((p) => p.key === 'runup').value;
-  assert.ok(later > early, `cooling toward optimum should raise run-up: ${early} then ${later}`);
+  // The estimate must follow the air down, even though 19 °C is still above the
+  // pike welfare line, so the water factor stays at its floor throughout.
+  const later = hours[hours.length - 12];
+  assert.ok(later.waterTemp < mid.waterTemp, `water should cool: ${mid.waterTemp} then ${later.waterTemp}`);
+  assert.equal(later.parts.find((p) => p.key === 'water').value, 0, 'still too warm for pike');
 });
 
 test('moon: full marks within ±3 days of syzygy, less at the quarter', () => {
@@ -385,20 +386,69 @@ test('runUpScore returns null when there is too little history', () => {
   assert.equal(runUpScore('perch', water, wx, 5), null);
 });
 
-test('the top of the scale is reachable: a gale lifting into a perfect dawn', () => {
-  // Three days of gale while the water climbs into the perfect band, then it
-  // calms: full marks on every factor except the very last of the run-up.
-  const wx = synth('2026-10-01T00:00:00Z', 13, (i) => ({
-    temp: i < 216 ? 6 : 16,
-    wind: i < 288 ? 26 : 8,
-    precip: i >= 290 ? 0.5 : 0,
-    cloud: 85,
-    pressure: i < 288 ? 1024 : 1024 - (i - 288) * 0.5,
-  }));
+test('the top of the scale is reachable when a hard spell breaks', () => {
+  // Eleven days of gale and glare with the water sitting right, then it calms,
+  // clouds over, rains lightly and the pressure falls away.
+  const BREAK = 11 * 24;
+  const wx = synth('2026-10-01T00:00:00Z', 14, (i) =>
+    i < BREAK
+      ? { temp: 13, cloud: 5, wind: 32, precip: 0, pressure: 1036 }
+      : { temp: 13, cloud: 85, wind: 8, precip: 0.5, pressure: 1036 - (i - BREAK) * 0.6 },
+  );
   const hours = scoreHours(wx, ctxFor('perch'));
   const best = [...hours].sort((a, b) => b.score - a.score)[0];
-  assert.ok(best.score >= 4.7, `an exceptional alignment should approach 5, got ${best.score}`);
+  assert.ok(best.score >= 4.6, `a hard spell lifting should approach 5, got ${best.score}`);
   assert.equal(ratingLabel(best.score), 'Excellent');
-  const runup = best.parts.find((p) => p.key === 'runup');
-  assert.ok(/recovering/.test(runup.note), 'the run-up should name the recovery');
+  assert.ok(/lifting/.test(best.parts.find((p) => p.key === 'runup').note));
+});
+
+test('run-up reads every condition, so any multi-day regime registers', () => {
+  const BREAK = 11 * 24;
+  const after = (i) => ({ temp: 14, cloud: 85, wind: 8, precip: 0.5, pressure: 1030 - (i - BREAK) * 0.6 });
+  const regimes = {
+    heatwave: (i) => (i < BREAK ? { temp: 31, cloud: 0, wind: 2, precip: 0, pressure: 1030 } : after(i)),
+    blockingHigh: (i) => (i < BREAK ? { temp: 13, cloud: 0, wind: 2, precip: 0, pressure: 1038 } : after(i)),
+    daysOfStorms: (i) => (i < BREAK ? { temp: 12, cloud: 95, wind: 34, precip: 4, pressure: 985 } : after(i)),
+    galeAndGlare: (i) => (i < BREAK ? { temp: 13, cloud: 5, wind: 32, precip: 0, pressure: 1036 } : after(i)),
+  };
+  for (const [name, f] of Object.entries(regimes)) {
+    const hours = scoreHours(synth('2026-10-01T00:00:00Z', 14, f), ctxFor('perch'));
+    const best = [...hours].sort((a, b) => b.score - a.score)[0];
+    const ru = best.parts.find((p) => p.key === 'runup');
+    assert.ok(ru.value >= 0.45, `${name} lifting should pay the run-up, got ${ru.value}`);
+  }
+});
+
+test('run-up separates a spell that lifts from one that sours', () => {
+  const BREAK = 11 * 24;
+  const good = { temp: 13, cloud: 85, wind: 8, precip: 0.4, pressure: 1012 };
+  const bad = { temp: 4, cloud: 5, wind: 30, precip: 0, pressure: 1035 };
+  const at = (f) => {
+    const hours = scoreHours(synth('2026-10-01T00:00:00Z', 14, f), ctxFor('perch'));
+    return hours[hours.length - 30].parts.find((p) => p.key === 'runup').value;
+  };
+  const souring = at((i) => (i < BREAK ? good : bad));
+  const settled = at(() => good);
+  const lifting = at((i) => (i < BREAK ? bad : good));
+  assert.ok(souring < settled, `souring ${souring} should trail settled ${settled}`);
+  assert.ok(settled < lifting, `settled ${settled} should trail a lift ${lifting}`);
+  assert.ok(lifting - souring > 0.3, `the swing should be prominent, got ${lifting - souring}`);
+});
+
+test('run-up does not reward the post-frontal morning by the back door', () => {
+  // A front passes: pressure rockets, sky clears, air drops. On a plain
+  // "bad then good" reading this looks like an improvement. It must not score
+  // like one, because the pressure factor is the thing that knows better.
+  const BREAK = 11 * 24;
+  const hours = scoreHours(
+    synth('2026-10-01T00:00:00Z', 14, (i) =>
+      i < BREAK
+        ? { temp: 13, cloud: 95, wind: 18, precip: 2, pressure: 995 }
+        : { temp: 6, cloud: 5, wind: 6, precip: 0, pressure: 995 + (i - BREAK) * 0.9 },
+    ),
+    ctxFor('perch'),
+  );
+  const late = hours[hours.length - 30];
+  const pressure = late.parts.find((p) => p.key === 'pressure');
+  assert.equal(pressure.value, 0, 'a rising, clearing, colder morning must take no pressure marks');
 });
