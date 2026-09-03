@@ -324,3 +324,82 @@ The shell is now stale-while-revalidate. The cached copy still answers instantly
 a fresh copy is fetched in the background, and when the two differ the page shows
 a "newer version is ready" bar that reloads on tap. Offline behaviour is
 unchanged.
+
+
+## The score is a points budget
+
+There is no base and no gain. Every factor scores from 0 to its own maximum, and
+the maxima add up to 5, so the score is simply their sum.
+
+| Factor | Max | Full marks when |
+| --- | --- | --- |
+| Light & time of day | 1.5 | the species' best light window |
+| Water temperature | 1.2 | inside the species' best band |
+| Run-up (3-5 days) | 0.8 | improving, and released from a hard spell |
+| Wind & surface | 0.5 | a 4-12 mph ripple |
+| Rain | 0.3 | light rain falling |
+| Pressure trend | 0.3 | falling at least 3 hPa in 24 hours |
+| Boat disturbance | 0.3 | the cut is quiet |
+| Moon | 0.1 | within 3 days of new or full |
+| **Total** | **5.0** | |
+
+The arrangement it replaced was a flat base of 2.5 plus signed deviations. Half
+the score sat in a constant that told the angler nothing, printed on screen as
+"Base, flat starting point, +2.5", while the real factors fought over what was
+left. Now each line of the breakdown reads as a mark out of a mark, and the
+number at the bottom is the sum of the column above it.
+
+Some consequences worth stating.
+
+- **Frost is gone as a separate line.** Freezing air is already inside the water
+  temperature proxy, so scoring it twice was double-counting one mechanism. The
+  ice flag remains.
+- **Thunder scores zero on rain** rather than applying a penalty, and stays a
+  safety flag.
+- **Solunar shares the moon budget** instead of adding to it, so switching it on
+  cannot push a total past 5.
+- **The floor is not zero in practice.** A freezing gale at night still scores
+  about 1.3, because a quiet cut and steady pressure genuinely are not the
+  problem that day. The verdict still reads "Stay home".
+- **The ceiling is reachable but strict.** Three days of gale that lift while the
+  water climbs into the perfect band, at dawn, with light rain, a ripple, falling
+  pressure and a new moon, reaches 4.9.
+
+## Run-up: the three and five days before
+
+Water temperature already averages the days before, so the level carries the
+lead-in. What it cannot carry is direction. Fourteen degrees and climbing after a
+cold spell is a different proposition from fourteen and falling. The run-up
+factor adds what the level leaves out, in two halves.
+
+**Direction, up to 0.45.** How far the water has moved toward the species' best
+band over three days and five days, the three-day window weighted more heavily.
+No movement scores the midpoint, not zero: a settled week is neither a promise
+nor a warning.
+
+**Recovery, up to 0.35.** How much of the previous three days was suppressive,
+paid out only in proportion to how permissive the present hour is. Suppressive
+means a real physical brake: water far off the optimum, wind at 20 mph or more,
+or rain at 3 mm an hour or more. A cold snap followed by a bright freezing high
+earns nothing here, because nothing has been released.
+
+### Why this is not "bad weather then good weather"
+
+The request behind this factor was that a bad spell followed by a favourable one
+should count for more. That is right for a specific mechanism and wrong as a
+general rule, so the implementation is narrower than the phrase.
+
+It is right when the earlier spell physically prevented feeding. Fish that could
+not feed normally carry a deficit and feed hard when the brake comes off. That is
+what the recovery half scores.
+
+It is wrong as a blanket rule because the best-known weather pattern in angling
+runs the other way. Fish feed on the falling limb ahead of a front, while the
+weather is deteriorating, and go quiet in the bright, cold, rising-pressure air
+behind it. By the plain reading of "bad then good", that post-frontal morning
+would score well. It should not. That effect stays in the pressure factor, where
+falling pressure takes full marks and a rising, clearing, colder morning takes
+none, and the run-up factor deliberately does not touch it.
+
+So the two coexist: pressure handles the approach of weather, run-up handles
+release from a spell that had physically shut the fishing down.

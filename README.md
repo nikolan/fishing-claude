@@ -25,7 +25,7 @@ Open `http://127.0.0.1:4390/?mock=1` for a deterministic synthetic fortnight whe
 
 ## Using it
 
-**Forecast** — the hero card is *now*; the strip below is the next 7 days. Tap a day for its hourly chart, then tap any hour to see the itemised reason for its score (base + light + water temp + …, with the raw total shown when it clamps).
+**Forecast** — the hero card is *now*; the strip below is the next 7 days. Tap a day for its hourly chart, then tap any hour to see the itemised reason for its score, each factor shown as a mark out of the share it can earn.
 
 **History** — the last 14 days scored from recorded weather, with a daily bar chart, a "Good" threshold line and period stats. This is the calibration view: compare it against your own catch log. If your good sessions cluster above 3.4 the weights are working; if they don't, tune them (below).
 
@@ -51,7 +51,7 @@ The panel is guidance. It never enters the score.
 
 ## Tuning
 
-Everything lives in `public/src/engine.js`: `WATER_TEMP`, `PROFILES`, `WEIGHTS`, `WATER_TAU_HOURS`, `COLOUR_HALF_LIFE_HOURS`, `BOAT_COLOUR_HALF_LIFE_HOURS`, `RUNOFF_COLOUR_COEFF`, `BOAT_COLOUR_INPUT`, `LURE_GUIDE`, `LURE_BOX`. `WEIGHTS.base` sets the level and `WEIGHTS.gain` sets how far conditions can move it. The in-app "How the score is built" panel renders those constants, so the documentation can't drift from the code. Run `npm test` after changing them — the tests pin the behaviours that matter (the 30 Aug reference day, clarity staying out of the score, boat wash settling overnight, the flat base, the 0-5 range being reachable at both ends, cold snaps, pike welfare, NaN tolerance).
+Everything lives in `public/src/engine.js`: `WATER_TEMP`, `PROFILES`, `WEIGHTS`, `WATER_TAU_HOURS`, `COLOUR_HALF_LIFE_HOURS`, `BOAT_COLOUR_HALF_LIFE_HOURS`, `RUNOFF_COLOUR_COEFF`, `BOAT_COLOUR_INPUT`, `LURE_GUIDE`, `LURE_BOX`. `FACTORS` sets each factor's share of the 5 points, and `RUNUP` tunes the 3-5 day lead-in. The in-app "How the score is built" panel renders those constants, so the documentation can't drift from the code. Run `npm test` after changing them — the tests pin the behaviours that matter (the 30 Aug reference day, clarity staying out of the score, boat wash settling overnight, the factors summing to exactly 5, the 0-5 range being reachable at both ends, run-up rewarding release rather than any bad-then-good pair, cold snaps, pike welfare, NaN tolerance).
 
 ## Layout
 

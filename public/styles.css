@@ -794,3 +794,17 @@ dialog h3 {
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.3);
   cursor: pointer;
 }
+
+.factor-bar {
+  margin-top: 5px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--grid);
+  overflow: hidden;
+}
+.factor-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--score-4);
+}

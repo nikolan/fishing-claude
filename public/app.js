@@ -1,4 +1,4 @@
-import { forecast, PROFILES, WATER_TEMP, WEIGHTS, ratingLabel, WATER_TAU_HOURS, COLOUR_HALF_LIFE_HOURS, BOAT_COLOUR_HALF_LIFE_HOURS, lureAdvice, lurePicks } from './src/engine.js';
+import { forecast, PROFILES, WATER_TEMP, WEIGHTS, ratingLabel, WATER_TAU_HOURS, COLOUR_HALF_LIFE_HOURS, BOAT_COLOUR_HALF_LIFE_HOURS, lureAdvice, lurePicks, FACTORS, FACTOR_TOTAL, RUNUP } from './src/engine.js';
 import { fetchForecast, fetchBankHolidays, weatherCodeLabel, normaliseOpenMeteo } from './src/data.js';
 import { findRainGauge, fetchGaugeHourly, applyGaugeRain } from './src/ea.js';
 import { getSunTimes } from './src/astro.js';
@@ -265,11 +265,14 @@ function renderHero() {
   const bits = [];
   if (today.bestWindow) bits.push(`Best window ${fmtTime(today.bestWindow.start)}–${fmtTime(today.bestWindow.end)} (${today.bestWindow.score.toFixed(1)})`);
   if (now) {
-    const top = [...now.parts]
-      .filter((p) => p.key !== 'base')
-      .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
-      .slice(0, 2);
-    if (top.length) bits.push(top.map((p) => `${p.label.toLowerCase()} ${signed(p.value)}`).join(' · '));
+    // Which factors are earning their share, and which are costing the most?
+    const share = (p) => (p.max ? p.value / p.max : 0);
+    const ranked = [...now.parts].sort((x, y) => share(y) - share(x));
+    const best = ranked[0];
+    const worst = ranked[ranked.length - 1];
+    if (best && worst && best !== worst) {
+      bits.push(`${best.label.toLowerCase()} ${Math.round(share(best) * 100)}% · ${worst.label.toLowerCase()} ${Math.round(share(worst) * 100)}%`);
+    }
   }
   headline.append(el('div', { class: 'sub', text: bits.join(' — ') }));
   hero.append(scoreEl, headline);
@@ -607,19 +610,23 @@ function renderBreakdown(h) {
   box.append(el('h4', { text: `Why ${h.score.toFixed(1)} at ${fmtTime(h.time)}${h.fishable ? '' : ' (outside usual hours for this species)'}` }));
   const table = el('table');
   for (const p of h.parts) {
+    const frac = p.max ? p.value / p.max : 0;
     table.append(
       el(
         'tr',
         {},
-        el('td', {}, el('div', { text: p.label }), el('div', { class: 'n', text: p.note ?? '' })),
-        el('td', { class: `v ${p.value > 0 ? 'pos' : p.value < 0 ? 'neg' : ''}`, text: signed(p.value) }),
+        el('td', {},
+          el('div', { text: p.label }),
+          el('div', { class: 'n', text: p.note ?? '' }),
+          el('div', { class: 'factor-bar' }, el('span', { style: `width:${Math.round(frac * 100)}%` })),
+        ),
+        el('td', { class: `v ${frac >= 0.75 ? 'pos' : frac <= 0.25 ? 'neg' : ''}`, text: `${p.value.toFixed(2)} / ${p.max.toFixed(2)}` }),
       ),
     );
   }
-  const clamped = h.raw < 0 || h.raw > 5;
   table.append(
     el('tr', { class: 'total' },
-      el('td', { text: clamped ? `Total (raw ${h.raw.toFixed(1)}, clamped to 0–5)` : 'Total' }),
+      el('td', { text: `Total out of ${FACTOR_TOTAL.toFixed(0)}` }),
       el('td', { class: 'v', text: h.score.toFixed(1) }),
     ),
   );
@@ -648,7 +655,15 @@ function renderAbout() {
   const body = $('#aboutBody');
   body.replaceChildren();
   const p = (t) => body.append(el('p', { text: t }));
-  p('Score = a flat base of ' + WEIGHTS.base.toFixed(1) + ' + additive weather/water/canal components, clamped 0–5. Above 4.0 every extra point counts one third, so a true 5.0 needs an exceptional day. Each component is a single mechanism, so "overcast" and "dusk" never double-count — they both act through the light component.');
+  p(`Score = the sum of the factors below, out of ${FACTOR_TOTAL.toFixed(0)}. Each factor runs from 0 to its own maximum, so a perfect day earns 5 by earning full marks everywhere and a hopeless one earns 0. There is no base and no fudge factor. Each factor is a single mechanism, so "overcast" and "dusk" never double-count — they both act through light.`);
+
+  const tb = el('table');
+  tb.append(el('tr', {}, el('th', { text: 'Factor' }), el('th', { text: 'Max' })));
+  for (const f of Object.values(FACTORS)) tb.append(el('tr', {}, el('td', { text: f.label }), el('td', { class: 'num', text: f.max.toFixed(2) })));
+  tb.append(el('tr', { class: 'total' }, el('td', { text: 'Total' }), el('td', { class: 'num', text: FACTOR_TOTAL.toFixed(2) })));
+  body.append(el('div', { class: 'table-wrap' }, tb));
+
+  p(`The run-up factor reads the ${RUNUP.reach3d}-day and ${RUNUP.reach5d}-day lead-in two ways. Direction scores how far the water has moved toward the species' best band, because the level alone cannot tell you which way it is going. Recovery scores how suppressed the previous three days were, and only pays out when the present hour is permissive, so a cold snap followed by a bright freezing high earns nothing. "Bad then good" is not treated as a general rule: the classic pre-front feeding spell lives in the pressure factor instead.`);
   p(`Water temperature is estimated as a ${Math.round((WATER_TAU_HOURS / 24) * 10) / 10}-day exponential average of air temperature plus a small solar term (a 1.3 m canal lags air by 2–3 days). Canal colour is a run-off index with a ${COLOUR_HALF_LIFE_HOURS} h half-life plus a boat-wash term with a ${BOAT_COLOUR_HALF_LIFE_HOURS} h half-life, because propeller-stirred silt settles overnight while rain run-off does not; where an Environment Agency rain gauge is within 15 km its observations replace modelled past rain. Both are proxies, not measurements — read the water when you arrive.`);
   p('Day score = mean of the best three fishable hours (the session you would actually fish), not a 24 h average.');
   p('Weights follow the evidence: water temperature, light and clarity carry the score (telemetry and catch-rate studies). Barometric pressure and solunar periods showed no direct effect in controlled angling studies, so they are small tie-breakers; a ±3-day new/full-moon bonus is kept because two large datasets found a real ~5% effect. Wind direction has no weight — "east wind" acts through temperature and cloud, which are already scored.');
@@ -691,28 +706,23 @@ function renderAbout() {
   row('Rain light / moderate / heavy', (pr) => `${signed(pr.rain.light)} / ${signed(pr.rain.moderate)} / ${signed(pr.rain.heavy)}`);
   row('Boats: busy / moderate', (pr) => `${signed(pr.boats.busy)} / ${signed(pr.boats.normal)}`);
   row('Wind 13–20 mph', (pr) => signed(pr.windFresh));
-  row('Cold snap multiplier', (pr) => `×${pr.coldSnap}`);
   body.append(el('div', { class: 'table-wrap' }, t3));
 
   const t4 = el('table');
-  t4.append(el('tr', {}, el('th', { text: 'Shared component' }), el('th', { text: 'Points' })));
+  t4.append(el('tr', {}, el('th', { text: 'Shared component' }), el('th', { text: 'Effect' })));
   const shared = [
-    ['Pressure falling ≥ 3 hPa/24h (tie-breaker)', WEIGHTS.pressure.falling],
-    ['Pressure rising ≥ 8 hPa + clearing + colder', WEIGHTS.pressure.risingClearingCold],
-    ['Cold snap: 3-day mean −5 °C', WEIGHTS.tempShock.drop5],
-    ['Mild spell: 3-day mean +3 °C (Nov–Mar)', WEIGHTS.tempShock.mildSpell],
-    ['Summer cooling, pike only (water > 16 °C)', WEIGHTS.tempShock.summerCoolingPike],
-    ['Wind 4–12 mph ripple', WEIGHTS.wind.ripple],
-    ['Wind 21–28 / > 28 mph', `${signed(WEIGHTS.wind.strong)} / ${signed(WEIGHTS.wind.gale)}`],
-    ['Gusts ≥ 30 mph', WEIGHTS.wind.gusty],
-    ['Flat calm & bright', WEIGHTS.wind.flatBright],
-    ['Frost with water < 3 °C', WEIGHTS.frost],
-    ['Thunderstorm', WEIGHTS.thunder],
-    ['New/full moon ±3 days', WEIGHTS.moon.syzygy],
-    ['Dark night, zander only', WEIGHTS.moon.darkNightZander],
-    ['Solunar major / minor (opt-in, traditional)', `${signed(WEIGHTS.solunar.major)} / ${signed(WEIGHTS.solunar.minor)}`],
+    ['Pressure falling ≥ 3 hPa/24h (tie-breaker)', 'full pressure marks'],
+    ['Pressure rising ≥ 8 hPa + clearing + colder', 'no pressure marks'],
+    ['Wind 4–12 mph ripple', 'full wind marks'],
+    ['Wind 21–28 / > 28 mph', 'wind marks fall away'],
+    ['Gusts ≥ 30 mph', 'further wind penalty'],
+    ['Thunderstorm', 'no rain marks, and a safety flag'],
+    ['Frost', 'no separate term: it is already in the water temperature'],
+    ['New/full moon ±3 days', 'full moon marks'],
+    ['Dark night, zander only', 'full moon marks'],
+    ['Solunar (opt-in, traditional)', 'shares the moon budget, never adds to it'],
   ];
-  for (const [k, v] of shared) t4.append(el('tr', {}, el('td', { text: k }), el('td', { class: 'num', text: typeof v === 'number' ? signed(v) : v })));
+  for (const [k, v] of shared) t4.append(el('tr', {}, el('td', { text: k }), el('td', { class: 'num', text: v })));
   body.append(el('div', { class: 'table-wrap' }, t4));
   p('Evidence grades and sources for every weight are in ALGORITHM.md in the repository.');
 }
@@ -842,7 +852,40 @@ function showUpdateBar() {
   document.body.append(bar);
 }
 
+/**
+ * Escape hatch for a stuck install: `?reset=1` tears out every service worker
+ * and cache, then reloads clean.
+ *
+ * A cache-first worker cannot be fixed by deploying a better worker, because the
+ * old one keeps serving the old files while the browser makes up its mind about
+ * the new one. On a phone with the app on the home screen that can persist for
+ * days. This gives a way out that does not need devtools.
+ */
+async function hardReset() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch {
+    /* best effort: reload anyway */
+  }
+  const url = new URL(location.href);
+  url.searchParams.delete('reset');
+  url.searchParams.set('t', String(Date.now()));
+  location.replace(url.toString());
+}
+
 async function main() {
+  if (new URLSearchParams(location.search).has('reset')) {
+    document.body.textContent = 'Clearing the old version…';
+    await hardReset();
+    return;
+  }
   load();
   wireUi();
   renderAbout();

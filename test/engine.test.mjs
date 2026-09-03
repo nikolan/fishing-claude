@@ -12,6 +12,9 @@ import {
   twilightSeasonFactor,
   pikeSummerBreak,
   WEIGHTS,
+  FACTORS,
+  FACTOR_TOTAL,
+  runUpScore,
   BOAT_COLOUR_INPUT,
   RUNOFF_COLOUR_COEFF,
   PROFILES,
@@ -143,10 +146,11 @@ test("user's example day (30 Aug, showers, overcast, falling pressure, 16°C) is
   assert.ok(day, 'expected 30 Aug summary');
   assert.ok(day.score >= 3.8 && day.score <= 4.6, `score ${day.score}`);
   const keys = new Set(day.hours[12].parts.map((p) => p.key));
-  for (const k of ['base', 'light', 'water', 'pressure', 'rain', 'wind']) assert.ok(keys.has(k), `missing ${k}`);
-  // Pressure is a tie-breaker now: never more than +0.2.
+  for (const k of ['runup', 'light', 'water', 'pressure', 'rain', 'wind']) assert.ok(keys.has(k), `missing ${k}`);
+  // Pressure stays a tie-breaker: it can never take more than its small share.
   const pr = day.hours[12].parts.find((p) => p.key === 'pressure');
-  assert.ok(pr.value <= 0.2);
+  assert.ok(pr.value <= pr.max, `pressure ${pr.value} over its ceiling ${pr.max}`);
+  assert.ok(pr.max <= 0.3, 'pressure must remain a minor factor');
 });
 
 test('bright, calm, post-frontal day is poor for perch at noon; zander peak is the hours after dusk', () => {
@@ -170,7 +174,7 @@ test('bright, calm, post-frontal day is poor for perch at noon; zander peak is t
   assert.ok(zDusk.parts.find((p) => p.key === 'light').note.includes('after dusk'));
 });
 
-test('cold snap (3-day means) and frost are penalised; ice flag raised', () => {
+test('a cold snap strips the water and run-up marks, and raises the ice flag', () => {
   const wx = synth('2027-01-04T00:00:00Z', 9, (i) => ({
     temp: i < 96 ? 6 : -4,
     cloud: 20,
@@ -179,42 +183,52 @@ test('cold snap (3-day means) and frost are penalised; ice flag raised', () => {
   }));
   const hours = scoreHours(wx, ctxFor('perch'));
   const h = hours[96 + 60];
-  assert.ok(h.parts.some((p) => p.key === 'trend' && p.value <= -0.4), 'cold snap missing');
+  const runup = h.parts.find((p) => p.key === 'runup');
+  assert.ok(runup.value <= runup.max * 0.35, `run-up should collapse into a cold snap, got ${runup.value}`);
   const late = hours[hours.length - 1];
-  assert.ok(late.parts.some((p) => p.key === 'frost'), 'frost missing');
+  const water = late.parts.find((p) => p.key === 'water');
+  assert.ok(water.value <= water.max * 0.2, `freezing water should score near zero, got ${water.value}`);
   assert.ok(late.flags.includes('ice'));
   assert.equal(ratingLabel(late.score), 'Stay home');
 });
 
-test('pike: welfare flag at ≥18°C water and summer break flag; summer cooling bonus', () => {
+test('pike: welfare and summer-break flags, and warm water costs water marks', () => {
   const wx = synth('2026-07-10T00:00:00Z', 8, (i) => ({ temp: i < 96 ? 24 : 19, cloud: 60 }));
   const hours = scoreHours(wx, ctxFor('pike'));
   const mid = hours[100];
   assert.ok(mid.flags.includes('pikeWelfare'));
   assert.ok(mid.flags.includes('pikeSummer'));
-  assert.ok(mid.parts.find((p) => p.key === 'water').value <= -0.6);
-  const cooling = hours.slice(150).some((h) => h.parts.some((p) => p.key === 'trend' && p.label === 'Summer cooling'));
-  assert.ok(cooling, 'summer cooling bonus expected for pike');
+  const water = mid.parts.find((p) => p.key === 'water');
+  assert.ok(water.value <= water.max * 0.25, `too-warm water should score low for pike, got ${water.value}`);
+  // Cooling back toward the pike optimum must show up as run-up direction.
+  const early = hours[100].parts.find((p) => p.key === 'runup').value;
+  const later = hours[hours.length - 12].parts.find((p) => p.key === 'runup').value;
+  assert.ok(later > early, `cooling toward optimum should raise run-up: ${early} then ${later}`);
 });
 
-test('moon: syzygy bonus within ±3 days of full moon, absent at quarter', () => {
+test('moon: full marks within ±3 days of syzygy, less at the quarter', () => {
   // Full moon 2026-09-26 16:49 UTC; first quarter 2026-09-18.
   const wx = synth('2026-09-10T00:00:00Z', 20, () => ({ temp: 14, cloud: 60 }));
   const hours = scoreHours(wx, ctxFor('perch'));
-  const atFull = hours.find((h) => h.dateKey === '2026-09-26' && h.hour === 12);
-  const atQuarter = hours.find((h) => h.dateKey === '2026-09-18' && h.hour === 12);
-  assert.ok(atFull.parts.some((p) => p.key === 'moon'), 'syzygy bonus missing at full moon');
-  assert.ok(!atQuarter.parts.some((p) => p.key === 'moon'), 'unexpected moon bonus at quarter');
+  const moonAt = (key) => hours.find((h) => h.dateKey === key && h.hour === 12).parts.find((p) => p.key === 'moon');
+  const atFull = moonAt('2026-09-26');
+  const atQuarter = moonAt('2026-09-18');
+  assert.equal(atFull.value, atFull.max, 'full moon should take the whole moon budget');
+  assert.ok(atQuarter.value < atFull.value, 'the quarter should score less than syzygy');
 });
 
-test('solunar periods only when opted in, and never worth more than 0.15', () => {
+test('solunar is opt-in and shares the moon budget rather than adding to it', () => {
   const wx = synth('2026-09-10T00:00:00Z', 3, () => ({ temp: 14, cloud: 60 }));
   const off = scoreHours(wx, ctxFor('perch', { solunar: false }));
   const on = scoreHours(wx, ctxFor('perch', { solunar: true }));
-  assert.ok(off.every((h) => !h.parts.some((p) => p.key === 'solunar')));
-  const sol = on.flatMap((h) => h.parts.filter((p) => p.key === 'solunar'));
-  assert.ok(sol.length > 0);
-  assert.ok(sol.every((p) => p.value <= 0.15));
+  const notes = on.flatMap((h) => h.parts.filter((p) => p.key === 'moon' && /solunar/.test(p.note ?? '')));
+  assert.ok(notes.length > 0, 'expected some solunar periods when opted in');
+  assert.ok(off.every((h) => !/solunar/.test(h.parts.find((p) => p.key === 'moon')?.note ?? '')));
+  // Turning it on must never push any hour past the ceiling.
+  const maxOn = Math.max(...on.map((h) => h.score));
+  const maxOff = Math.max(...off.map((h) => h.score));
+  assert.ok(maxOn <= 5 && maxOff <= 5);
+  assert.ok(on.every((h) => h.parts.find((p) => p.key === 'moon').value <= FACTORS.moon.max));
 });
 
 test('scores are bounded 0..5 and every part is a finite number under extreme input', () => {
@@ -269,35 +283,35 @@ test('the logged sessions land in the band their lure is filed under', () => {
 });
 
 test('the calendar no longer moves the score', () => {
-  // Same conditions in April and in October must now score identically. The
-  // seasonal base used to separate them by more than a point.
   const make = (iso) =>
     scoreHours(
-      synth(iso, 3, () => ({ temp: 12, cloud: 70, precip: 0, pressure: 1015, wind: 8 })),
+      synth(iso, 8, () => ({ temp: 12, cloud: 70, precip: 0, pressure: 1015, wind: 8 })),
       ctxFor('perch'),
     );
   const april = make('2026-04-10T00:00:00Z');
   const october = make('2026-10-10T00:00:00Z');
-  const noonPart = (hs, key) => hs.find((h) => h.hour === 12).parts.find((p) => p.key === key);
-  assert.equal(noonPart(april, 'base').value, noonPart(october, 'base').value, 'the base must not read the calendar');
-  // Sun geometry still differs between the two dates, so the totals are not
-  // identical. What must be gone is the seasonal step, which was above a point.
-  const noon = (hs) => hs.find((h) => h.hour === 12).score;
+  const noon = (hs) => hs.filter((h) => h.hour === 12).at(-1).score;
+  // Sun geometry still differs between the two dates, so they are not identical.
+  // What must be gone is the seasonal step, which was worth more than a point.
   assert.ok(Math.abs(noon(april) - noon(october)) < 0.3, `April ${noon(april)} vs October ${noon(october)}`);
-  assert.equal(noonPart(april, 'season'), undefined, 'no season component remains');
+  assert.ok(october.every((h) => !h.parts.some((p) => p.key === 'season')), 'no season factor remains');
 });
 
-test('every hour starts from the flat base', () => {
+test('the score is the sum of the factors, with no base and nothing left over', () => {
   const hs = scoreHours(
-    synth('2026-09-10T00:00:00Z', 2, () => ({ temp: 14, cloud: 60, precip: 0, pressure: 1015, wind: 8 })),
+    synth('2026-09-10T00:00:00Z', 8, () => ({ temp: 14, cloud: 60, precip: 0, pressure: 1015, wind: 8 })),
     ctxFor('perch'),
   );
+  assert.equal(Math.round(FACTOR_TOTAL * 100) / 100, 5, 'the factor maxima must add up to 5');
   for (const h of hs) {
-    const base = h.parts.find((p) => p.key === 'base');
-    assert.ok(base, 'every hour carries a base part');
-    assert.equal(base.value, WEIGHTS.base);
+    assert.equal(h.parts.find((p) => p.key === 'base'), undefined, 'no base factor');
+    const sum = h.parts.reduce((s, p) => s + p.value, 0);
+    assert.ok(Math.abs(sum - h.raw) < 0.005, `parts ${sum} should equal raw ${h.raw}`);
+    for (const part of h.parts) {
+      assert.ok(part.max > 0, `${part.key} must declare a ceiling`);
+      assert.ok(part.value >= 0 && part.value <= part.max, `${part.key} ${part.value} outside 0..${part.max}`);
+    }
   }
-  assert.equal(hs.filter((h) => h.parts.some((p) => p.key === 'season')).length, 0, 'no season part remains');
 });
 
 test('water clarity no longer reaches the score by any path', () => {
@@ -325,14 +339,66 @@ test('water clarity no longer reaches the score by any path', () => {
   assert.ok(wet.colour > dry.colour, 'the clarity estimate is still computed');
 });
 
-test('good conditions can reach 5 and bad ones reach 0', () => {
-  // A dark, freezing, gale-blown January midnight must bottom out.
+test('the scale is reachable at both ends', () => {
   const grim = scoreHours(
-    synth('2027-01-10T00:00:00Z', 8, () => ({ temp: -3, cloud: 20, precip: 0, pressure: 1032, wind: 40 })),
+    synth('2027-01-10T00:00:00Z', 9, () => ({ temp: -6, cloud: 15, precip: 0, pressure: 1034, wind: 42 })),
     ctxFor('perch'),
   );
-  assert.ok(Math.min(...grim.map((h) => h.score)) <= 0.5, `grim floor ${Math.min(...grim.map((h) => h.score))}`);
-  // The scale must still be reachable at the top: no soft cap compresses it now.
-  assert.equal(clampScore(2.5 + WEIGHTS.gain * 2.4), 5);
-  assert.ok(WEIGHTS.gain > 1, 'conditions carry more than face value');
+  const floor = Math.min(...grim.map((h) => h.score));
+  // A quiet cut and steady pressure still earn their small share on a dreadful
+  // day, because they genuinely are not the problem. What matters is the verdict.
+  assert.ok(floor <= 1.5, `a freezing gale at night should bottom out, got ${floor}`);
+  assert.equal(ratingLabel(floor), 'Stay home');
+  // Full marks everywhere is exactly 5: that is what the budget guarantees.
+  assert.equal(Math.round(Object.values(FACTORS).reduce((s, f) => s + f.max, 0) * 100) / 100, 5);
+});
+
+test('run-up rewards recovery from a hard spell, not merely a grey one', () => {
+  // Five cold days, then mild. The recovery half should pay out once the water
+  // has come back toward the perch optimum.
+  const recovering = scoreHours(
+    synth('2026-11-01T00:00:00Z', 12, (i) => ({ temp: i < 168 ? -1 : 13, cloud: 70, precip: 0, pressure: 1015, wind: 6 })),
+    ctxFor('perch'),
+  );
+  // Steady mild throughout: nothing to recover from.
+  const settled = scoreHours(
+    synth('2026-11-01T00:00:00Z', 12, () => ({ temp: 13, cloud: 70, precip: 0, pressure: 1015, wind: 6 })),
+    ctxFor('perch'),
+  );
+  const last = (hs) => hs.at(-1).parts.find((p) => p.key === 'runup').value;
+  assert.ok(last(recovering) > last(settled), `recovery ${last(recovering)} should beat settled ${last(settled)}`);
+});
+
+test('run-up pays nothing when the hard spell has not actually lifted', () => {
+  // Cold, then still cold: a bright freezing high releases nothing.
+  const stillCold = scoreHours(
+    synth('2027-01-05T00:00:00Z', 12, () => ({ temp: -4, cloud: 10, precip: 0, pressure: 1035, wind: 5 })),
+    ctxFor('perch'),
+  );
+  const ru = stillCold.at(-1).parts.find((p) => p.key === 'runup');
+  assert.ok(ru.value <= ru.max * 0.6, `no release means no recovery payout, got ${ru.value}`);
+});
+
+test('runUpScore returns null when there is too little history', () => {
+  const wx = synth('2026-09-10T00:00:00Z', 1, () => ({ temp: 14, cloud: 60 }));
+  const water = new Array(24).fill(14);
+  assert.equal(runUpScore('perch', water, wx, 5), null);
+});
+
+test('the top of the scale is reachable: a gale lifting into a perfect dawn', () => {
+  // Three days of gale while the water climbs into the perfect band, then it
+  // calms: full marks on every factor except the very last of the run-up.
+  const wx = synth('2026-10-01T00:00:00Z', 13, (i) => ({
+    temp: i < 216 ? 6 : 16,
+    wind: i < 288 ? 26 : 8,
+    precip: i >= 290 ? 0.5 : 0,
+    cloud: 85,
+    pressure: i < 288 ? 1024 : 1024 - (i - 288) * 0.5,
+  }));
+  const hours = scoreHours(wx, ctxFor('perch'));
+  const best = [...hours].sort((a, b) => b.score - a.score)[0];
+  assert.ok(best.score >= 4.7, `an exceptional alignment should approach 5, got ${best.score}`);
+  assert.equal(ratingLabel(best.score), 'Excellent');
+  const runup = best.parts.find((p) => p.key === 'runup');
+  assert.ok(/recovering/.test(runup.note), 'the run-up should name the recovery');
 });

@@ -95,44 +95,148 @@ export const PROFILES = {
 };
 
 export const WEIGHTS = {
-  // Flat starting point for every hour of every day, replacing the old seasonal
-  // base. The score is this plus the sum of the condition terms, soft-capped.
-  //
-  // The seasonal base used to set this level from the calendar, running 1.4 to
-  // 3.1 across the year for perch. It was removed on request. Note what that
-  // costs: the model no longer knows that October beats April for perch, or that
-  // pike fish far better in November than in July. Only the pike welfare break
-  // still tracks the calendar, and it is a flag rather than a score. Restore the
-  // table from git history if the seasonal signal is wanted back.
-  base: 2.5,
-  // Every condition term is multiplied by this before it is added to the base.
-  // The terms are individually small: light moves about 1.0, water temperature
-  // 0.5, and the rest 0.3 or less. Summed and added raw to the base they spanned
-  // roughly 3.3 to 4.1 over three weeks, so no day ever read bad and none ever
-  // read excellent. The gain gives them authority over the whole 0-5 range: a
-  // genuinely good combination now reaches 5.0 and a genuinely bad one reaches 0.
-  //
-  // Set from the terms' own limits, not from a sample. Stacking every plausible
-  // positive for perch (dawn +0.8, water +0.5, mild spell +0.3, light rain +0.3,
-  // ripple +0.15, falling pressure +0.2, syzygy +0.15) sums to about 2.4, so a
-  // gain of 1.05 puts that day at 5.0. Stacking the negatives (dark, cold water,
-  // gale, frost, busy boats, rising pressure behind a cold front) reaches about
-  // -3.6, which clamps to 0. Five stays rare and has to be earned.
-  gain: 1.05,
   // Tie-breakers only: controlled studies find no direct pressure effect.
   pressure: { falling: 0.2, risingClearingCold: -0.3 },
-  // 3-day mean vs previous 3-day mean of air temperature.
-  tempShock: { drop5: -0.5, mildSpell: 0.3, summerCoolingPike: 0.2 },
   wind: { flatBright: -0.1, ripple: 0.15, strong: -0.5, gale: -0.8, gusty: -0.3 },
-  moon: { syzygy: 0.15, darkNightZander: 0.1 },
-  solunar: { major: 0.15, minor: 0.05 }, // opt-in, "traditional"
-  thunder: -0.5,
-  frost: -0.5,
   pikeWelfareTemp: 18,
-  // The soft cap above 4.0 was removed with the gain. Its job was to keep a pile
-  // of small bonuses from running past 5; the gain sets the range directly, so a
-  // plain clamp is honest and a compressed top end is not.
 };
+
+// ---------------------------------------------------------------------------
+// The points budget
+//
+// Every factor scores from 0 to its own maximum, and the maxima sum to 5. There
+// is no base and no gain: the score IS the sum of the factors, so a perfect day
+// earns 5 by earning full marks everywhere, and a hopeless one earns 0 because
+// every factor is at its floor.
+//
+// This replaced a flat base of 2.5 plus signed deviations. That arrangement put
+// half the score in a constant that told the angler nothing ("Base, flat
+// starting point, +2.5") and left the real factors fighting over the remainder.
+//
+// The share each factor gets reflects how much it moves fishing on a canal, and
+// how well that is evidenced. Light and water temperature are the two that
+// decide most days, so they hold more than half the budget between them.
+export const FACTORS = {
+  light: { max: 1.5, label: 'Light & time of day' },
+  water: { max: 1.2, label: 'Water temperature' },
+  runup: { max: 0.8, label: 'Run-up (3-5 days)' },
+  wind: { max: 0.5, label: 'Wind & surface' },
+  rain: { max: 0.3, label: 'Rain' },
+  pressure: { max: 0.3, label: 'Pressure trend' },
+  boats: { max: 0.3, label: 'Boat disturbance' },
+  moon: { max: 0.1, label: 'Moon' },
+};
+
+/** Total points available. Must be 5 for the 0-5 scale to mean anything. */
+export const FACTOR_TOTAL = Object.values(FACTORS).reduce((s, f) => s + f.max, 0);
+
+/** Map a value from [lo, hi] onto [0, max], clamped. */
+export function toBudget(value, lo, hi, max) {
+  if (!(hi > lo) || !Number.isFinite(value)) return max / 2;
+  return Math.min(max, Math.max(0, ((value - lo) / (hi - lo)) * max));
+}
+
+/** The light term's own floor and ceiling for a species, used to normalise it. */
+export function lightRange(prof) {
+  return [Math.min(prof.night, prof.afterDusk, prof.dayBase - prof.daySlope), Math.max(prof.twilight, prof.dayBase)];
+}
+
+/** The water-temperature band's floor and ceiling for a species. */
+export function waterRange(species) {
+  const pts = WATER_TEMP[species].map((b) => b[2]);
+  return [Math.min(...pts), Math.max(...pts)];
+}
+
+/** Midpoint of the species' best water-temperature band: what the fish is heading toward. */
+export function optimumWaterTemp(species) {
+  const best = WATER_TEMP[species].reduce((a, b) => (b[2] > a[2] ? b : a));
+  return (Math.max(best[0], -5) + Math.min(best[1], 30)) / 2;
+}
+
+// ---------------------------------------------------------------------------
+// Run-up: what the three and five days before this hour did to the fish.
+//
+// Two things are measured, and they are not the same thing.
+//
+// Direction. Water temperature is already an average of the days before, so the
+// level carries the run-up. What it does not carry is which way the water is
+// going. Fourteen degrees and climbing after a cold spell is a different
+// proposition from fourteen and falling. This half scores movement toward the
+// species' best band over three and five days.
+//
+// Recovery. A spell that suppressed feeding, then conditions that allow it, is
+// the case for a burst: fish that could not feed normally have a deficit to make
+// up. This half scores how suppressed the previous three days were, and only
+// pays out when the present hour is actually permissive. A cold snap followed by
+// a bright, freezing high earns nothing, because nothing has been released.
+//
+// Note what this deliberately does not claim. "Bad then good" is not a general
+// rule. The classic front pattern runs the other way: fish feed on the falling
+// limb, before the weather arrives, and go quiet behind it. That effect lives in
+// the pressure factor and is left alone here. Suppression means a real physical
+// brake, thermal or mechanical, not merely a grey week.
+export const RUNUP = {
+  // How far the water must move toward the optimum to earn full direction marks.
+  reach3d: 3,
+  reach5d: 4,
+  directionShare: 0.45,
+  recoveryShare: 0.35,
+  // A suppressive hour: water this far from optimum, or wind at least this strong,
+  // or rain at least this heavy.
+  suppressOffset: 5,
+  suppressWind: 20,
+  suppressRain: 3,
+};
+
+/**
+ * Run-up points for hour `i`, from 0 to FACTORS.runup.max.
+ * Returns null when the series has too little history to judge.
+ */
+export function runUpScore(species, water, wx, i) {
+  const max = FACTORS.runup.max;
+  const opt = optimumWaterTemp(species);
+  const w0 = water[i];
+  if (!Number.isFinite(w0)) return null;
+
+  // --- direction -----------------------------------------------------------
+  const toward = (hoursBack, reach) => {
+    const j = i - hoursBack;
+    if (j < 0 || !Number.isFinite(water[j])) return null;
+    const closed = Math.abs(water[j] - opt) - Math.abs(w0 - opt);
+    return Math.max(-1, Math.min(1, closed / reach));
+  };
+  const t3 = toward(72, RUNUP.reach3d);
+  const t5 = toward(120, RUNUP.reach5d);
+  if (t3 === null) return null;
+  const trend = t5 === null ? t3 : 0.6 * t3 + 0.4 * t5;
+  const direction = ((trend + 1) / 2) * RUNUP.directionShare;
+
+  // --- recovery ------------------------------------------------------------
+  let suppressed = 0;
+  let counted = 0;
+  for (let j = Math.max(0, i - 72); j < i; j++) {
+    const wind = wx.wind ? wx.wind[j] : NaN;
+    const rain = wx.precip ? wx.precip[j] : NaN;
+    const cold = Number.isFinite(water[j]) && Math.abs(water[j] - opt) > RUNUP.suppressOffset;
+    const blown = Number.isFinite(wind) && wind >= RUNUP.suppressWind;
+    const flushed = Number.isFinite(rain) && rain >= RUNUP.suppressRain;
+    if (cold || blown || flushed) suppressed++;
+    counted++;
+  }
+  const supp = counted ? suppressed / counted : 0;
+
+  const windNow = wx.wind ? wx.wind[i] : NaN;
+  const thermalOk = Math.max(0, Math.min(1, 1 - Math.abs(w0 - opt) / 8));
+  const windOk = Number.isFinite(windNow) && windNow >= RUNUP.suppressWind ? 0 : 1;
+  const permissive = thermalOk * windOk;
+  const recovery = supp * permissive * RUNUP.recoveryShare;
+
+  const pts = Math.min(max, Math.max(0, direction + recovery));
+  const dirWord = trend > 0.15 ? 'improving' : trend < -0.15 ? 'worsening' : 'settled';
+  let note = `${dirWord} toward ${opt.toFixed(0)}°C`;
+  if (recovery > 0.05) note += `, recovering from ${Math.round(supp * 100)}% hard days`;
+  return { pts, note };
+}
 
 // Water-temperature proxy: exponential moving average of air temperature with
 // a 2.5-day time constant (τ = ρ·cp·h/K for h≈1.3 m, K≈25 W/m²K), plus a small
@@ -333,15 +437,12 @@ export function scoreHours(wx, ctx) {
     const lp = lps[i];
     const parts = [];
     const flags = [];
-    const add = (key, label, value, note) => {
-      if (Math.abs(value) < 0.001 && !note) return;
-      parts.push({ key, label, value: round2(value), note });
+    const add = (key, value, note) => {
+      const f = FACTORS[key];
+      parts.push({ key, label: f.label, value: round2(Math.min(f.max, Math.max(0, value))), max: f.max, note });
     };
 
-    // 1. Flat base. The calendar no longer moves the score; see WEIGHTS.base.
-    add('base', 'Base', WEIGHTS.base, 'flat starting point');
-
-    // 2. Light: sun angle × cloud × fog, with a species-specific diel curve.
+    // 1. Light: sun angle × cloud × fog, with a species-specific diel curve.
     const alt = alts[i];
     const cloud = wx.cloud[i];
     const B = brights[i];
@@ -374,31 +475,21 @@ export function scoreHours(wx, ctx) {
       const vis = wx.visibility ? wx.visibility[i] : NaN;
       if (Number.isFinite(vis) && vis < 2000) lightNote += ', murky/fog';
     }
-    add('light', 'Light', lightPts, lightNote);
+    const [lightLo, lightHi] = lightRange(prof);
+    add('light', toBudget(lightPts, lightLo, lightHi, FACTORS.light.max), lightNote);
 
-    // 3. Water temperature proxy
+    // 2. Water temperature proxy
     const tw = water[i];
-    add('water', 'Water temp', band(WATER_TEMP[species], tw), `~${tw.toFixed(1)}°C (est.)`);
+    const [waterLo, waterHi] = waterRange(species);
+    add('water', toBudget(band(WATER_TEMP[species], tw), waterLo, waterHi, FACTORS.water.max), `~${tw.toFixed(1)}°C (est.)`);
     if (species === 'pike' && tw >= WEIGHTS.pikeWelfareTemp) flags.push('pikeWelfare');
     if (species === 'pike' && pikeSummerBreak(lp.month, lp.day)) flags.push('pikeSummer');
 
-    // 4. Air-temperature trend: 3-day mean vs previous 3-day mean
-    if (i >= 144) {
-      const recent = meanRange(wx.temp, i - 72, i);
-      const before = meanRange(wx.temp, i - 144, i - 72);
-      const delta = recent - before;
-      const ws = WEIGHTS.tempShock;
-      if (delta <= -5) add('trend', 'Cold snap', ws.drop5 * prof.coldSnap, `${delta.toFixed(1)}°C vs previous 3 days`);
-      else if (delta >= 3 && (lp.month >= 11 || lp.month <= 3)) add('trend', 'Mild spell', ws.mildSpell, `+${delta.toFixed(1)}°C vs previous 3 days`);
-      else if (species === 'pike' && delta <= -2 && tw > 16) add('trend', 'Summer cooling', ws.summerCoolingPike, `${delta.toFixed(1)}°C, water easing off`);
-    } else if (i >= 48) {
-      const recent = meanRange(wx.temp, i - 24, i);
-      const before = meanRange(wx.temp, i - 48, i - 24);
-      const delta = recent - before;
-      if (delta <= -5) add('trend', 'Cold snap', WEIGHTS.tempShock.drop5 * prof.coldSnap, `${delta.toFixed(1)}°C in 24h`);
-    }
+    // 3. Run-up: direction and recovery over the last 3-5 days.
+    const ru = runUpScore(species, water, wx, i);
+    add('runup', ru ? ru.pts : FACTORS.runup.max * 0.5, ru ? ru.note : 'not enough history yet');
 
-    // 5. Pressure — tie-breaker only (no direct effect in controlled studies).
+    // 4. Pressure — tie-breaker only (no direct effect in controlled studies).
     if (i >= 24 && Number.isFinite(wx.pressure[i]) && Number.isFinite(wx.pressure[i - 24])) {
       const d24 = wx.pressure[i] - wx.pressure[i - 24];
       const tempDrop = i >= 48 ? meanRange(wx.temp, i - 24, i) - meanRange(wx.temp, i - 48, i - 24) : 0;
@@ -411,24 +502,28 @@ export function scoreHours(wx, ctx) {
         pts = WEIGHTS.pressure.risingClearingCold;
         note += ', post-frontal: rising, clearing, colder';
       } else note += d24 >= 3 ? ', rising' : ', steady';
-      add('pressure', 'Pressure', pts, note);
+      add('pressure', toBudget(pts, WEIGHTS.pressure.risingClearingCold, WEIGHTS.pressure.falling, FACTORS.pressure.max), note);
     }
 
-    // 6. Rain now (small: rain mostly acts via light and colour)
+    // 5. Rain now (small: rain mostly acts via light and colour)
     const p = wx.precip[i] || 0;
     const code = wx.weatherCode ? wx.weatherCode[i] : 0;
+    const rainLo = Math.min(prof.rain.heavy, prof.rain.moderate, prof.rain.light, 0);
+    const rainHi = Math.max(prof.rain.heavy, prof.rain.moderate, prof.rain.light, 0);
+    const rainPts = (raw, note) => add('rain', toBudget(raw, rainLo, rainHi, FACTORS.rain.max), note);
     if (code >= 95) {
-      add('rain', 'Thunder', WEIGHTS.thunder, 'thunderstorm — stay off the bank');
+      add('rain', 0, 'thunderstorm — stay off the bank');
       flags.push('thunder');
-    } else if (p >= 4) add('rain', 'Rain', prof.rain.heavy, `heavy ${p.toFixed(1)} mm/h`);
-    else if (p >= 1.5) add('rain', 'Rain', prof.rain.moderate, `moderate ${p.toFixed(1)} mm/h`);
-    else if (p >= 0.1) add('rain', 'Rain', prof.rain.light, `light ${p.toFixed(1)} mm/h`);
+    } else if (p >= 4) rainPts(prof.rain.heavy, `heavy ${p.toFixed(1)} mm/h`);
+    else if (p >= 1.5) rainPts(prof.rain.moderate, `moderate ${p.toFixed(1)} mm/h`);
+    else if (p >= 0.1) rainPts(prof.rain.light, `light ${p.toFixed(1)} mm/h`);
+    else rainPts(0, 'dry');
 
     // 7. Canal colour no longer scores. The index is still computed, and still
     // drives the lure guidance and the facts panel, but it does not move the
     // score. See "Water clarity was removed from the score" in ALGORITHM.md.
 
-    // 8. Wind (speed only; direction acts through air mass = temperature/cloud)
+    // 6. Wind (speed only; direction acts through air mass = temperature/cloud)
     const wind = wx.wind[i];
     const gust = wx.gust ? wx.gust[i] : NaN;
     const ww = WEIGHTS.wind;
@@ -455,38 +550,55 @@ export function scoreHours(wx, ctx) {
         pts += ww.gusty;
         note += `, gusts ${Math.round(gust)}`;
       }
-      add('wind', 'Wind', pts, note);
+      const windLo = Math.min(ww.gale + ww.gusty, ww.strong, prof.windFresh, ww.flatBright);
+      const windHi = Math.max(ww.ripple, prof.windFresh, 0);
+      add('wind', toBudget(pts, windLo, windHi, FACTORS.wind.max), note);
     }
 
-    // 9. Boat traffic disturbance (colour effect already in the colour index)
+    // 7. Boat traffic disturbance (colour effect already in the colour index)
     const traffic = boats[i];
-    if (traffic !== 'none') add('boats', 'Boat traffic', prof.boats[traffic], traffic === 'busy' ? 'busy — weekend/holiday/peak season' : traffic === 'normal' ? 'moderate' : 'light');
+    const boatRaw = traffic === 'none' ? 0 : prof.boats[traffic];
+    const boatNote = traffic === 'none' ? 'quiet' : traffic === 'busy' ? 'busy — weekend/holiday/peak season' : traffic === 'normal' ? 'moderate' : 'light';
+    add('boats', toBudget(boatRaw, prof.boats.busy, 0, FACTORS.boats.max), boatNote);
 
     // 10. Frost / ice
+    // Frost no longer scores on its own: freezing air is already in the water
+    // temperature proxy, and counting it twice was double-counting one mechanism.
     const airMin24 = i >= 24 ? Math.min(...wx.temp.slice(i - 24, i + 1).filter(Number.isFinite)) : wx.temp[i];
-    if (tw < 3 && airMin24 < -1) {
-      add('frost', 'Frost', WEIGHTS.frost, `air min ${airMin24.toFixed(0)}°C`);
-      if (tw < 1.5 && airMin24 < -3) flags.push('ice');
-    }
+    if (tw < 1.5 && airMin24 < -3) flags.push('ice');
 
-    // 11. Moon: small syzygy effect (Kuparinen 2010; Vinson & Angradi 2014).
+    // 8. Moon: small syzygy effect (Kuparinen 2010; Vinson & Angradi 2014).
     const phase = di.moon.phase;
     const distNew = Math.min(phase, 1 - phase);
     const distFull = Math.abs(phase - 0.5);
     const daysFromSyzygy = Math.min(distNew, distFull) * 29.53;
-    if (daysFromSyzygy <= 3) add('moon', 'Moon', WEIGHTS.moon.syzygy, `${distFull < distNew ? 'full' : 'new'} moon ±3 days`);
-    if (species === 'zander' && alt < -6 && (di.moon.fraction < 0.25 || cloud >= 80)) add('moon', 'Dark night', WEIGHTS.moon.darkNightZander, di.moon.fraction < 0.25 ? 'little moonlight' : 'overcast night');
-
-    // 12. Solunar periods — opt-in, traditional; no predictive value in controlled tests.
-    if (di.solunar) {
-      const hit = solunarAt(date, di.solunar);
-      if (hit) add('solunar', 'Solunar', WEIGHTS.solunar[hit], `${hit} period (traditional)`);
+    const moonMax = FACTORS.moon.max;
+    let moonPts = moonMax * 0.3;
+    let moonNote = 'no lunar edge';
+    if (daysFromSyzygy <= 3) {
+      moonPts = moonMax;
+      moonNote = `${distFull < distNew ? 'full' : 'new'} moon ±3 days`;
+    }
+    if (species === 'zander' && alt < -6 && (di.moon.fraction < 0.25 || cloud >= 80)) {
+      moonPts = moonMax;
+      moonNote = di.moon.fraction < 0.25 ? 'little moonlight' : 'overcast night';
     }
 
-    // Base plus gain-weighted conditions. The base is a level, not a condition,
-    // so the gain must not touch it.
-    const conditions = parts.reduce((s, x) => (x.key === 'base' ? s : s + x.value), 0);
-    const raw = WEIGHTS.base + WEIGHTS.gain * conditions;
+    // 9. Solunar periods — opt-in, traditional; no predictive value in controlled tests.
+    if (di.solunar) {
+      const hit = solunarAt(date, di.solunar);
+      if (hit) {
+        // Shares the moon budget rather than adding to it, so switching solunar
+        // on cannot inflate the total past 5.
+        moonPts = Math.max(moonPts, hit === 'major' ? moonMax : moonMax * 0.6);
+        moonNote = `${hit} solunar period (traditional)`;
+      }
+    }
+    add('moon', moonPts, moonNote);
+
+    // The score is the sum of the factors. No base, no gain, nothing to clamp
+    // in normal use: each factor is already bounded by its own share of the 5.
+    const raw = parts.reduce((s, x) => s + x.value, 0);
     const score = round1(clampScore(raw));
     const fishable = prof.fishableNight || alt >= -8;
     results.push({
